@@ -1,0 +1,25 @@
+# Python and local environments
+__pycache__/
+*.py[cod]
+.build-env/
+.conda-env/
+
+# Build outputs and logs
+build/
+dist/
+*.log
+
+# Models and bundled/generated dependencies
+model-cache/
+vendor/
+
+# User documents, application data, and generated test artifacts
+PixelRAG-Studio-Data/
+rag_multimodal_testset/
+smoke/
+excel-*-test/
+results/
+
+# Editor and operating-system noise
+.DS_Store
+Thumbs.db
