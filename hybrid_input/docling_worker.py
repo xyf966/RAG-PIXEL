@@ -76,6 +76,12 @@ def convert(source: Path, output_dir: Path, document_type: str) -> ArtifactBundl
                 artifacts.append(Artifact(block_id, "text", provenance, text=text, reading_order=order, metadata=metadata))
         elif isinstance(item, TableItem):
             text = item.export_to_markdown(doc=document).strip()
+            metadata.update(
+                {
+                    "structure_origin": "document_converter",
+                    "span_reliability": "parser_dependent",
+                }
+            )
             artifacts.append(Artifact(block_id, "table", provenance, text=text, reading_order=order, metadata=metadata))
         elif isinstance(item, PictureItem):
             picture = item.get_image(document)

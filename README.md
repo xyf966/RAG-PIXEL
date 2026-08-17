@@ -10,8 +10,11 @@
 ```
 
 当前支持 PDF、DOC/DOCX、PPT/PPTX、XLS/XLSX、TXT、Markdown、HTML 和常见图片。
-PDF 默认使用 PyMuPDF；Office 默认通过独立 Docling worker 解析；图片处理使用
-Pillow；视觉向量化阶段暂为 `deferred`，等待后续单独接入 PixelRAG。
+PDF 默认使用 OpenDataLoader PDF 识别标题、段落、列表、表格、图片和阅读顺序，失败时自动回退 PyMuPDF；
+DOC/DOCX、PPT/PPTX 和 XLS 默认通过独立 Docling worker 解析；XLSX 默认使用 openpyxl 原生读取单元格、公式、合并范围、图片和图表锚点，失败时回退 Docling；图片处理使用
+Pillow；视觉向量化阶段支持 `deferred` 和 PixelRAG。默认保持 `deferred`，需要生成视觉向量时通过
+`--vision-processor pixelrag` 启用，向量会写入 `HybridDocument.vision_results`。
+OpenDataLoader 使用本机现有 Java 11；可通过 `HYBRID_PDF_JAVA` 替换 Java 运行时。
 Office 文件会在独立布局补全步骤中调用 Microsoft Office 导出临时 PDF，将 Docling
 逻辑位置与真实页码、归一化 bbox 对齐；该步骤失败时不会破坏原始语义解析结果。
 Excel 原生图表由独立的 Excel COM 渲染器直接导出 PNG，并保留工作表名、单元格范围、
@@ -25,7 +28,14 @@ Excel 点坐标和逻辑 bbox；该渲染器可单独替换，不影响解析、
 .build-env\Scripts\python.exe -m hybrid_input parse 文档.docx --output 解析结果
 .build-env\Scripts\python.exe -m hybrid_input render 文档.docx --output 渲染结果
 .build-env\Scripts\python.exe -m hybrid_input ingest 文档.docx --output artifacts
+.build-env\Scripts\python.exe -m hybrid_input ingest 文档.docx --output artifacts --vision-processor pixelrag --vision-device cpu
 ```
+
+PixelRAG 视觉处理器直接复用官方 `pixelrag_embed.embed_cpu` 后端。模型选择顺序为：
+`--vision-model`、环境变量 `HYBRID_PIXELRAG_MODEL`、项目内已下载的 `model-cache/Qwen3-VL-Embedding-2B`，
+最后才是 Hugging Face 模型名 `Qwen/Qwen3-VL-Embedding-2B`。首次使用远程模型名会下载约 4GB 权重。
+同一个 `HybridPipeline` 实例连续处理多份文档时，模型会在首次图片处理时懒加载并常驻复用，
+不会为每份文档重复加载；不再使用时可调用 `pipeline.vision_processor.close()` 主动释放模型。
 
 可通过 `HYBRID_DOCLING_PYTHON` 指定 Docling/Office worker 使用的 Python 环境。
 模块之间仅交换 JSON、图片文件和版本化数据契约；更换解析器或渲染器不要求修改

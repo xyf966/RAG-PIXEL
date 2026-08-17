@@ -168,6 +168,82 @@ class PyMuPdfParser(DocumentParser):
         return ArtifactBundle(doc_id, str(source.resolve()), document_type, self.name, artifacts, warnings)
 
 
+class OpenDataLoaderPdfSubprocessParser(DocumentParser):
+    name = "opendataloader-pdf"
+
+    def __init__(self, python_executable: Path, worker_script: Path | None = None) -> None:
+        self.python_executable = Path(python_executable)
+        self.worker_script = worker_script or Path(__file__).with_name("opendataloader_worker.py")
+
+    def supports(self, document_type: str) -> bool:
+        return document_type == "pdf"
+
+    def parse(self, source: Path, output_dir: Path, document_type: str) -> ArtifactBundle:
+        if not self.python_executable.is_file():
+            raise RuntimeError(f"OpenDataLoader Python environment not found: {self.python_executable}")
+        result_path = output_dir / "opendataloader-result.json"
+        command = [
+            str(self.python_executable), str(self.worker_script),
+            "--input", str(source.resolve()),
+            "--output", str(output_dir.resolve()),
+            "--result", str(result_path.resolve()),
+        ]
+        result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout).strip()
+            raise RuntimeError(f"OpenDataLoader worker failed ({result.returncode}): {detail}")
+        return ArtifactBundle.from_dict(json.loads(result_path.read_text(encoding="utf-8")))
+
+
+class OpenPyxlSubprocessParser(DocumentParser):
+    name = "openpyxl-subprocess"
+
+    def __init__(self, python_executable: Path, worker_script: Path | None = None) -> None:
+        self.python_executable = Path(python_executable)
+        self.worker_script = worker_script or Path(__file__).with_name("openpyxl_worker.py")
+
+    def supports(self, document_type: str) -> bool:
+        return document_type == "xlsx"
+
+    def parse(self, source: Path, output_dir: Path, document_type: str) -> ArtifactBundle:
+        if not self.python_executable.is_file():
+            raise RuntimeError(f"openpyxl Python environment not found: {self.python_executable}")
+        result_path = output_dir / "openpyxl-result.json"
+        command = [
+            str(self.python_executable), str(self.worker_script),
+            "--input", str(source.resolve()),
+            "--output", str(output_dir.resolve()),
+            "--result", str(result_path.resolve()),
+        ]
+        result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout).strip()
+            raise RuntimeError(f"openpyxl worker failed ({result.returncode}): {detail}")
+        return ArtifactBundle.from_dict(json.loads(result_path.read_text(encoding="utf-8")))
+
+
+class FallbackDocumentParser(DocumentParser):
+    """Try one parser and fall back without coupling either implementation."""
+
+    name = "fallback-auto"
+
+    def __init__(self, primary: DocumentParser, fallback: DocumentParser, name: str = "pdf-structured-auto") -> None:
+        self.primary = primary
+        self.fallback = fallback
+        self.name = name
+
+    def supports(self, document_type: str) -> bool:
+        return self.primary.supports(document_type) and self.fallback.supports(document_type)
+
+    def parse(self, source: Path, output_dir: Path, document_type: str) -> ArtifactBundle:
+        try:
+            return self.primary.parse(source, output_dir, document_type)
+        except Exception as exc:
+            bundle = self.fallback.parse(source, output_dir, document_type)
+            bundle.warnings.insert(0, f"Structured PDF parser failed; used {self.fallback.name}: {exc}")
+            return bundle
+
+
 class DoclingSubprocessParser(DocumentParser):
     name = "docling-subprocess"
     TYPES = {"doc", "docx", "ppt", "pptx", "xls", "xlsx"}

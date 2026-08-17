@@ -7,28 +7,37 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .assembler import DefaultAssembler
+from .context import NearbyTextContextEnricher
 from .contracts import HybridDocument
 from .detector import SignatureDetector
-from .interfaces import DocumentAssembler, DocumentDetector, ImageProcessor, LayoutEnricher, VisionProcessor
+from .interfaces import ContextEnricher, DocumentAssembler, DocumentDetector, ImageProcessor, LayoutEnricher, VisionProcessor
 from .layout import OfficePdfLayoutEnricher
-from .parsers import DoclingSubprocessParser, ImageFileParser, PlainTextParser, PyMuPdfParser
+from .parsers import (
+    DoclingSubprocessParser,
+    FallbackDocumentParser,
+    ImageFileParser,
+    OpenDataLoaderPdfSubprocessParser,
+    OpenPyxlSubprocessParser,
+    PlainTextParser,
+    PyMuPdfParser,
+)
 from .processors import PillowImageProcessor
 from .registry import ParserRegistry
 from .renderers import MicrosoftExcelChartSubprocessRenderer, MicrosoftOfficeSubprocessRenderer
-from .vision import DeferredVisionProcessor
+from .vision import DeferredVisionProcessor, PixelRAGVisionProcessor
 
 
 @dataclass(slots=True)
 class PipelineConfig:
     parser_by_type: dict[str, str] = field(
         default_factory=lambda: {
-            "pdf": "pymupdf",
+            "pdf": "pdf-structured-auto",
             "doc": "docling-subprocess",
             "docx": "docling-subprocess",
             "ppt": "docling-subprocess",
             "pptx": "docling-subprocess",
             "xls": "docling-subprocess",
-            "xlsx": "docling-subprocess",
+            "xlsx": "xlsx-native-auto",
             "txt": "plain-text",
             "md": "plain-text",
             "html": "plain-text",
@@ -37,6 +46,9 @@ class PipelineConfig:
     )
     image_processor: str = "pillow"
     vision_processor: str = "deferred"
+    vision_model: str | None = None
+    vision_device: str = "auto"
+    vision_instruction: str = "Represent this document image for visual retrieval."
     assembler: str = "default"
     enable_office_layout: bool = True
     strict_layout: bool = False
@@ -51,6 +63,7 @@ class HybridPipeline:
         vision_processor: VisionProcessor,
         assembler: DocumentAssembler,
         layout_enricher: LayoutEnricher | None = None,
+        context_enricher: ContextEnricher | None = None,
         config: PipelineConfig | None = None,
     ) -> None:
         self.detector = detector
@@ -59,6 +72,7 @@ class HybridPipeline:
         self.vision_processor = vision_processor
         self.assembler = assembler
         self.layout_enricher = layout_enricher
+        self.context_enricher = context_enricher
         self.config = config or PipelineConfig()
 
     def ingest(self, source: Path, output_root: Path) -> HybridDocument:
@@ -83,12 +97,18 @@ class HybridPipeline:
                 if self.config.strict_layout:
                     raise
                 bundle.warnings.append(f"Layout enrichment failed: {exc}")
-        artifacts = self.image_processor.process(bundle.artifacts, staging)
+        contextualized = (
+            self.context_enricher.enrich(bundle.artifacts)
+            if self.context_enricher
+            else bundle.artifacts
+        )
+        artifacts = self.image_processor.process(contextualized, staging)
         vision_results = self.vision_processor.process(artifacts)
         providers = {
             "detector": type(self.detector).__name__,
-            "parser": parser.name,
+            "parser": bundle.parser,
             "layout_enricher": self.layout_enricher.name if self.layout_enricher else "none",
+            "context_enricher": self.context_enricher.name if self.context_enricher else "none",
             "image_processor": self.image_processor.name,
             "vision_processor": self.vision_processor.name,
             "assembler": self.assembler.name,
@@ -108,21 +128,42 @@ def discover_docling_python() -> Path:
 
 
 def build_default_pipeline(config: PipelineConfig | None = None, docling_python: Path | None = None) -> HybridPipeline:
+    config = config or PipelineConfig()
     worker_python = docling_python or discover_docling_python()
+    pymupdf = PyMuPdfParser()
+    opendataloader = OpenDataLoaderPdfSubprocessParser(worker_python)
+    docling = DoclingSubprocessParser(worker_python)
+    openpyxl = OpenPyxlSubprocessParser(worker_python)
     registry = ParserRegistry(
         [
             PlainTextParser(),
             ImageFileParser(),
-            PyMuPdfParser(),
-            DoclingSubprocessParser(worker_python),
+            pymupdf,
+            opendataloader,
+            FallbackDocumentParser(opendataloader, pymupdf, "pdf-structured-auto"),
+            openpyxl,
+            FallbackDocumentParser(openpyxl, docling, "xlsx-native-auto"),
+            docling,
         ]
     )
+    if config.vision_processor == "deferred":
+        vision_processor: VisionProcessor = DeferredVisionProcessor()
+    elif config.vision_processor == "pixelrag":
+        vision_processor = PixelRAGVisionProcessor(
+            model=config.vision_model,
+            device=config.vision_device,
+            instruction=config.vision_instruction,
+        )
+    else:
+        raise ValueError(f"Unknown vision processor: {config.vision_processor}")
+
     return HybridPipeline(
         detector=SignatureDetector(),
         parsers=registry,
         image_processor=PillowImageProcessor(),
-        vision_processor=DeferredVisionProcessor(),
+        vision_processor=vision_processor,
         assembler=DefaultAssembler(),
+        context_enricher=NearbyTextContextEnricher(),
         layout_enricher=OfficePdfLayoutEnricher(
             MicrosoftOfficeSubprocessRenderer(worker_python),
             excel_chart_renderer=MicrosoftExcelChartSubprocessRenderer(worker_python),

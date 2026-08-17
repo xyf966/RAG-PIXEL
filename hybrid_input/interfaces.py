@@ -50,6 +50,16 @@ class LayoutEnricher(ABC):
         raise NotImplementedError
 
 
+class ContextEnricher(ABC):
+    """Adds nearby semantic context without changing parsed content or assets."""
+
+    name = "context-enricher"
+
+    @abstractmethod
+    def enrich(self, artifacts: list[Artifact]) -> list[Artifact]:
+        raise NotImplementedError
+
+
 class ImageProcessor(ABC):
     name = "image-processor"
 
