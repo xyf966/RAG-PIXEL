@@ -40,7 +40,11 @@ class NearbyTextContextEnricher(ContextEnricher):
             if item.kind in {"text", "table"} and item.text and item.text.strip()
         ]
         for visual in artifacts:
-            if visual.kind not in {"image", "visual_task"}:
+            if visual.kind not in {"image", "visual_task", "visual"}:
+                continue
+            if visual.metadata.get("context_locked"):
+                if visual.context and visual.context.strip():
+                    visual.metadata.setdefault("context_source", "visual_object")
                 continue
             if visual.context and visual.context.strip():
                 visual.metadata.setdefault("context_source", "parser_caption")

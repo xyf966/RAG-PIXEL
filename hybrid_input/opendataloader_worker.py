@@ -163,6 +163,88 @@ def _crop_visual(document: Any, page_no: int, top_left_box: list[float], destina
     return destination.resolve()
 
 
+def _intersection_ratio(left: list[float], right: list[float]) -> float:
+    x0, y0 = max(left[0], right[0]), max(left[1], right[1])
+    x1, y1 = min(left[2], right[2]), min(left[3], right[3])
+    intersection = max(0.0, x1 - x0) * max(0.0, y1 - y0)
+    area = max(1.0, (left[2] - left[0]) * (left[3] - left[1]))
+    return intersection / area
+
+
+def _add_vector_visual_regions(
+    document: Any, source: Path, doc_id: str, artifacts: list[Artifact]
+) -> None:
+    """Identify PDF vector charts/diagrams/icons; do not rasterize them here."""
+    for page_index, page in enumerate(document):
+        page_no = page_index + 1
+        page_area = max(float(page.rect.width * page.rect.height), 1.0)
+        occupied = [
+            item.provenance.bbox_original
+            for item in artifacts
+            if item.provenance.page == page_no
+            and item.provenance.bbox_original
+            and item.kind in {"table", "visual"}
+            and item.metadata.get("visual_role") != "background"
+            and not (
+                item.provenance.bbox
+                and item.provenance.bbox[0] <= 0.01
+                and item.provenance.bbox[1] <= 0.01
+                and item.provenance.bbox[2] >= 0.99
+                and item.provenance.bbox[3] >= 0.99
+            )
+        ]
+        texts = [
+            item for item in artifacts
+            if item.kind == "text" and item.provenance.page == page_no
+            and item.provenance.bbox_original and item.text
+        ]
+        for cluster_index, rect in enumerate(page.cluster_drawings()):
+            box = [float(rect.x0), float(rect.y0), float(rect.x1), float(rect.y1)]
+            width, height = rect.width, rect.height
+            area_ratio = float(width * height) / page_area
+            if width < 16 or height < 16 or area_ratio < 0.0008:
+                continue
+            if any(_intersection_ratio(box, other) >= 0.65 for other in occupied):
+                continue
+            overlapping_text = [
+                item for item in texts
+                if _intersection_ratio(item.provenance.bbox_original or [], box) >= 0.35
+                or _intersection_ratio(box, item.provenance.bbox_original or []) >= 0.35
+            ]
+            label = " ".join(item.text or "" for item in overlapping_text)
+            numeric_labels = len(re.findall(r"(?<!\w)\d+(?:\.\d+)?(?!\w)", label))
+            if overlapping_text and numeric_labels >= 3:
+                visual_type = "chart"
+            elif overlapping_text:
+                visual_type = "diagram"
+            elif area_ratio <= 0.05:
+                visual_type = "icon"
+            else:
+                visual_type = "diagram"
+            order = len(artifacts)
+            artifact = Artifact(
+                block_id=f"{doc_id[:16]}:vector-{page_no:04d}-{cluster_index:04d}",
+                kind="visual",
+                provenance=Provenance(
+                    source_file=source.name,
+                    page=page_no,
+                    bbox=[rect.x0 / page.rect.width, rect.y0 / page.rect.height, rect.x1 / page.rect.width, rect.y1 / page.rect.height],
+                    bbox_original=box,
+                    locator=f"pdf-vector:{page_no}:{cluster_index}",
+                ),
+                context=label or None,
+                reading_order=order,
+                metadata={
+                    "structure_origin": "pdf-vector-region",
+                    "materialization_status": "deferred-to-index",
+                    "area_ratio": round(area_ratio, 6),
+                },
+                visual_type=visual_type,
+            )
+            artifacts.append(artifact)
+            occupied.append(box)
+
+
 def _convert_structure(source: Path, structure: dict[str, Any], output_dir: Path) -> ArtifactBundle:
     import pymupdf
 
@@ -221,16 +303,23 @@ def _convert_structure(source: Path, structure: dict[str, Any], output_dir: Path
                     }
                 )
                 artifact = Artifact(block_id, "table", provenance, text=text, reading_order=order, parent_block_id=parent_id, metadata=metadata)
-            elif semantic_type == "image":
+            elif semantic_type in {"image", "picture", "figure", "chart"}:
                 image_path = _resolve_image(node.get("source"), raw_dir)
-                if image_path is None and page_no and original:
-                    image_path = _crop_visual(document, page_no, original, raw_dir / f"crop-{order:06d}.png")
-                    metadata["cropped_from_pdf"] = True
-                artifact = Artifact(block_id, "image", provenance, asset_path=str(image_path) if image_path else None, reading_order=order, parent_block_id=parent_id, metadata=metadata)
+                metadata["materialization_status"] = "raw-asset-available" if image_path else "deferred-to-index"
+                full_page = bool(normalized and normalized[0] <= 0.01 and normalized[1] <= 0.01 and normalized[2] >= 0.99 and normalized[3] >= 0.99)
+                if full_page:
+                    metadata["visual_role"] = "background"
+                    metadata["indexable"] = False
+                artifact = Artifact(
+                    block_id, "visual", provenance,
+                    asset_path=str(image_path) if image_path else None,
+                    reading_order=order, parent_block_id=parent_id,
+                    metadata=metadata,
+                    visual_type=("background" if full_page else ("chart" if semantic_type == "chart" else "image")),
+                )
                 if image_path is None:
-                    artifact.kind = "visual_task"
                     metadata["render_required"] = True
-                    warnings.append(f"OpenDataLoader image has no extractable asset: {block_id}")
+                    warnings.append(f"OpenDataLoader visual requires index-time materialization: {block_id}")
             else:
                 text = _list_text(node) if semantic_type == "list" else _node_text(node)
                 if not text:
@@ -240,12 +329,13 @@ def _convert_structure(source: Path, structure: dict[str, Any], output_dir: Path
             if semantic_type == "heading" and heading_level:
                 heading_stack = {level: value for level, value in heading_stack.items() if level < heading_level}
                 heading_stack[heading_level] = block_id
+        _add_vector_visual_regions(document, source, doc_id, artifacts)
         return ArtifactBundle(doc_id, str(source.resolve()), "pdf", "opendataloader-pdf", artifacts, warnings)
     finally:
         document.close()
 
 
-def convert(source: Path, output_dir: Path) -> ArtifactBundle:
+def convert(source: Path, output_dir: Path, hybrid_url: str) -> ArtifactBundle:
     import opendataloader_pdf
 
     source = source.resolve()
@@ -265,7 +355,10 @@ def convert(source: Path, output_dir: Path) -> ArtifactBundle:
         "--image-dir", _short_path(raw_dir),
         "--reading-order", "xycut",
         "--table-method", "cluster",
-        "--use-struct-tree",
+        "--hybrid", "docling-fast",
+        "--hybrid-mode", "full",
+        "--hybrid-url", hybrid_url,
+        "--hybrid-fallback",
         "--quiet",
     ]
     result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace")
@@ -284,8 +377,9 @@ def main() -> None:
     parser.add_argument("--input", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--result", required=True, type=Path)
+    parser.add_argument("--hybrid-url", required=True)
     args = parser.parse_args()
-    bundle = convert(args.input, args.output)
+    bundle = convert(args.input, args.output, args.hybrid_url)
     args.result.parent.mkdir(parents=True, exist_ok=True)
     args.result.write_text(json.dumps(bundle.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
 

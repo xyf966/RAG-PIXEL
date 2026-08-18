@@ -21,7 +21,7 @@ from pathlib import Path
 
 
 APP_NAME = "PixelRAG Studio"
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.2.0"
 SUPPORTED = {
     ".pdf", ".doc", ".docx", ".docm", ".ppt", ".pptx", ".pptm",
     ".xls", ".xlsx", ".xlsm", ".png", ".jpg", ".jpeg", ".webp",
@@ -71,6 +71,15 @@ def _redirect_worker_output() -> None:
     sys.stderr = stream
 
 
+def _safe_print(message: str) -> None:
+    """Keep worker diagnostics usable even under a legacy Windows code page."""
+    try:
+        print(message)
+    except UnicodeEncodeError:
+        encoding = getattr(sys.stdout, "encoding", None) or "ascii"
+        print(message.encode(encoding, errors="backslashreplace").decode(encoding))
+
+
 def _dispatch_module(module_name: str, args: list[str]) -> None:
     _redirect_worker_output()
     module = importlib.import_module(module_name)
@@ -118,46 +127,25 @@ def _install_pymupdf_pdf_renderer() -> None:
 
 def _worker_index(config_path: str, force: bool) -> None:
     _redirect_worker_output()
-    _install_pymupdf_pdf_renderer()
-    from pixelrag_index.pipelines import main as index_main
+    import yaml
 
-    sys.argv = ["pixelrag index", "build", "--config", config_path]
+    from hybrid_input.indexing import build_hybrid_index
+
+    config_file = Path(config_path).resolve()
+    config = yaml.safe_load(config_file.read_text(encoding="utf-8")) or {}
+    source_dir = Path(config["source"]["path"])
+    index_dir = Path(config["output"])
+    model = config.get("embed", {}).get("model") or DEFAULT_MODEL
+    device = config.get("embed", {}).get("device") or "cpu"
     if force:
-        sys.argv.append("--force")
-
-    # FAISS on Windows opens index files through a narrow-character C++ API,
-    # which fails for otherwise valid paths containing Chinese characters.
-    # Build in an ASCII-only temporary directory, then copy the artifacts back.
-    original_run = subprocess.run
-
-    def unicode_safe_run(command: object, *args: object, **kwargs: object) -> object:
-        if isinstance(command, (list, tuple)):
-            command_parts = [str(part) for part in command]
-            is_faiss_build = (
-                "pixelrag_embed.index" in command_parts
-                and "build" in command_parts
-                and "--output-dir" in command_parts
-            )
-            if is_faiss_build:
-                output_index = command_parts.index("--output-dir") + 1
-                destination = Path(command_parts[output_index])
-                destination.mkdir(parents=True, exist_ok=True)
-                with tempfile.TemporaryDirectory(prefix="pixelrag-faiss-") as temp_dir:
-                    safe_command = command_parts.copy()
-                    safe_command[output_index] = temp_dir
-                    result = original_run(safe_command, *args, **kwargs)
-                    for artifact in ("index.faiss", "metadata.npz"):
-                        generated = Path(temp_dir) / artifact
-                        if generated.exists():
-                            shutil.copy2(generated, destination / artifact)
-                    return result
-        return original_run(command, *args, **kwargs)
-
-    subprocess.run = unicode_safe_run
-    try:
-        index_main()
-    finally:
-        subprocess.run = original_run
+        _safe_print("Forced rebuild requested")
+    build_hybrid_index(
+        source_dir=source_dir,
+        artifacts_dir=config_file.parent / "artifacts",
+        index_dir=index_dir,
+        model=model,
+        device=device,
+    )
 
 
 def _worker_serve(
@@ -168,26 +156,10 @@ def _worker_serve(
     port: str,
 ) -> None:
     _redirect_worker_output()
-    from pixelrag_serve.api import main as serve_main
+    from hybrid_input.indexing import serve_hybrid_index
 
-    sys.argv = [
-        "pixelrag serve",
-        "--index-dir",
-        index_dir,
-        "--tiles-dir",
-        tiles_dir,
-        "--articles-json",
-        articles_json,
-        "--model",
-        model,
-        "--device",
-        "cpu",
-        "--host",
-        "127.0.0.1",
-        "--port",
-        port,
-    ]
-    serve_main()
+    del tiles_dir, articles_json
+    serve_hybrid_index(Path(index_dir), model, int(port), device="cpu")
 
 
 def _worker_hybrid(source_dir: str, artifacts_dir: str) -> None:
@@ -204,8 +176,11 @@ def _worker_hybrid(source_dir: str, artifacts_dir: str) -> None:
     for source in sources:
         try:
             result = pipeline.ingest(source, Path(artifacts_dir))
-            image_count = sum(item.kind == "image" for item in result.artifacts)
-            print(f"OK {source.name}: {len(result.artifacts)} blocks, {image_count} images")
+            visual_count = sum(item.kind == "visual" for item in result.artifacts)
+            print(
+                f"OK {source.name}: {len(result.artifacts)} blocks, "
+                f"{visual_count} visual regions (Pixel deferred to index)"
+            )
         except Exception as exc:
             failures.append(f"{source.name}: {exc}")
             print(f"FAILED {source.name}: {exc}")
@@ -278,7 +253,7 @@ class StudioApp:
         ttk.Label(header, text="PixelRAG Studio", font=("Segoe UI", 18, "bold")).pack(side="left")
         ttk.Label(
             header,
-            text="像素原生 PDF / 图片视觉检索",
+            text="Hybrid 文档解析 / 图片专用 Pixel / 混合检索",
             foreground="#52606d",
         ).pack(side="left", padx=(16, 0), pady=(5, 0))
         ttk.Button(header, text="打开数据目录", command=self._open_data_root).pack(side="right")
@@ -320,7 +295,7 @@ class StudioApp:
         self.ingest_button = ttk.Button(ingest_box, text="解析输入文档", command=self._start_hybrid_ingest)
         self.ingest_button.pack(fill="x", pady=(6, 0))
 
-        build_box = ttk.LabelFrame(left, text="4. 构建视觉索引", padding=10)
+        build_box = ttk.LabelFrame(left, text="4. 构建混合索引", padding=10)
         build_box.pack(fill="x")
         ttk.Label(build_box, text="视觉 Embedding 模型").pack(anchor="w")
         ttk.Entry(build_box, textvariable=self.model_name).pack(fill="x", pady=(4, 6))
@@ -339,7 +314,7 @@ class StudioApp:
         search_tab = ttk.Frame(self.notebook, padding=12)
         log_tab = ttk.Frame(self.notebook, padding=8)
         about_tab = ttk.Frame(self.notebook, padding=18)
-        self.notebook.add(search_tab, text="视觉搜索")
+        self.notebook.add(search_tab, text="混合搜索")
         self.notebook.add(log_tab, text="运行日志")
         self.notebook.add(about_tab, text="能力说明")
 
@@ -360,7 +335,7 @@ class StudioApp:
         self.results.pack(fill="both", expand=True)
         self.results.bind("<<ListboxSelect>>", self._show_selected_result)
         self.result_payloads: list[dict] = []
-        self.preview = ttk.Label(result_right, text="检索命中后，这里显示对应页面视觉块", anchor="center")
+        self.preview = ttk.Label(result_right, text="命中图片时显示预览；文字/表格显示原始内容", anchor="center")
         self.preview.pack(fill="both", expand=True)
         self.result_meta = ttk.Label(result_right, text="", wraplength=520, foreground="#374151")
         self.result_meta.pack(fill="x", pady=(8, 0))
@@ -369,10 +344,10 @@ class StudioApp:
         self.log_text.pack(fill="both", expand=True)
 
         about = (
-            "本应用调用 PixelRAG 0.4.0 官方流水线：\n\n"
-            "文档 → Pixelshot 页面渲染 → 1024px 视觉分块 → "
-            "Qwen3-VL-Embedding-2B → FAISS 视觉索引 → 文本/图像检索。\n\n"
-            "它不是 OCR 搜索。文本问题会直接与页面像素的视觉向量比较，因此可以保留表格、图表、布局、信息图等结构。\n\n"
+            "本应用使用 Hybrid 输入与图片专用 Pixel 流程：\n\n"
+            "文档 → 原生结构解析 → 文字/表格直接保留 → 图片提取或复杂对象裁切 → "
+            "Qwen3-VL-Embedding-2B 图片向量 → 结构化索引 + 图片 FAISS → 混合检索。\n\n"
+            "Office 临时 PDF 只负责页面坐标补全和复杂视觉对象渲染；文字和表格不会进入 Pixel。\n\n"
             "当前构建固定使用 CPU，以保证无独立显卡的 Windows 电脑也能运行。CPU 首次建库和首次启动搜索服务可能需要较长时间。"
         )
         ttk.Label(about_tab, text=about, wraplength=760, justify="left", font=("Segoe UI", 11)).pack(anchor="nw")
@@ -498,6 +473,9 @@ class StudioApp:
         if self.ingest_process and self.ingest_process.poll() is None:
             messagebox.showinfo(APP_NAME, "Hybrid 输入正在解析，请查看运行日志。")
             return
+        if self.build_process and self.build_process.poll() is None:
+            messagebox.showinfo(APP_NAME, "索引正在构建，请等待完成后再单独运行输入解析。")
+            return
         assert self.project_dir is not None
         log_path = self.project_dir / "logs" / "ingest.log"
         log_path.write_text(
@@ -518,7 +496,7 @@ class StudioApp:
             creationflags=flags,
         )
         self.ingest_button.configure(state="disabled")
-        self.status_text.set("正在解析：结构识别 → 图片提取 → 坐标归一化 → HybridDocument")
+        self.status_text.set("正在解析：结构识别 → visual 分类与定位 → HybridDocument（不调用 Pixel）")
         self.notebook.select(1)
 
     def _start_build(self) -> None:
@@ -527,16 +505,19 @@ class StudioApp:
         if not self._ensure_project():
             return
         if self.docs_list.size() == 0:
-            messagebox.showwarning(APP_NAME, "请先添加至少一个 PDF 或图片。")
+            messagebox.showwarning(APP_NAME, "请先添加至少一个支持的文档。")
             return
         if self.build_process and self.build_process.poll() is None:
             messagebox.showinfo(APP_NAME, "索引正在构建，请查看运行日志。")
+            return
+        if self.ingest_process and self.ingest_process.poll() is None:
+            messagebox.showinfo(APP_NAME, "Hybrid 输入正在解析，请等待完成后再构建索引。")
             return
         self._stop_server()
         config = self._write_config()
         log_path = self.project_dir / "logs" / "build.log"
         log_path.write_text(
-            f"[{datetime.now().isoformat(timespec='seconds')}] 开始构建 PixelRAG 视觉索引\n",
+            f"[{datetime.now().isoformat(timespec='seconds')}] 开始构建 Hybrid 混合索引\n",
             encoding="utf-8",
         )
         self._log_offset = 0
@@ -551,14 +532,17 @@ class StudioApp:
             creationflags=flags,
         )
         self.build_button.configure(state="disabled")
-        self.status_text.set("正在构建：渲染 → 分块 → 视觉 Embedding → FAISS 索引")
+        self.status_text.set("正在构建：结构识别 → visual 物化 → Pixel 视觉向量 → 语义/FAISS 混合索引")
         self.notebook.select(1)
 
     def _index_ready(self) -> bool:
         if not self.project_dir:
             return False
         index_dir = self.project_dir / "index"
-        required = tuple(index_dir / name for name in ("index.faiss", "metadata.npz", "articles.json"))
+        required = tuple(
+            index_dir / name
+            for name in ("hybrid-index.json", "semantic-index.json", "image-metadata.json")
+        )
         if not all(path.exists() for path in required):
             return False
         source_files = [path for path in (self.project_dir / "source").iterdir() if path.is_file()]
@@ -576,7 +560,7 @@ class StudioApp:
         from tkinter import messagebox
 
         if self.build_process and self.build_process.poll() is None:
-            messagebox.showwarning(APP_NAME, "视觉索引仍在构建，请等待构建完成后再启动搜索服务。")
+            messagebox.showwarning(APP_NAME, "混合索引仍在构建，请等待构建完成后再启动搜索服务。")
             return
         if not self._index_ready():
             messagebox.showwarning(APP_NAME, "索引不存在或已落后于源文档，请先完成重新构建。")
@@ -600,8 +584,8 @@ class StudioApp:
         cmd = self._worker_command(
             "--worker-serve",
             str(safe_index_dir),
-            str(safe_index_dir / "tiles"),
-            str(safe_index_dir / "articles.json"),
+            "-",
+            "-",
             self.model_name.get().strip() or DEFAULT_MODEL,
             str(self.server_port),
         )
@@ -613,7 +597,7 @@ class StudioApp:
             creationflags=flags,
         )
         self.server_is_ready = False
-        self.status_text.set("正在加载视觉模型和索引；CPU 模式可能需要数分钟……")
+        self.status_text.set("混合索引服务正在启动；Pixel 模型将在首次图片检索时加载……")
         self.notebook.select(1)
 
     def _server_url(self, path: str) -> str:
@@ -639,7 +623,7 @@ class StudioApp:
             messagebox.showinfo(APP_NAME, "搜索服务仍在加载模型，请稍后再试并查看运行日志。")
             return
         self.server_is_ready = True
-        self.status_text.set("正在执行像素原生视觉检索……")
+        self.status_text.set("正在执行文字/表格与图片混合检索……")
         threading.Thread(target=self._search_thread, args=(query,), daemon=True).start()
 
     def _search_thread(self, query: str) -> None:
@@ -670,14 +654,16 @@ class StudioApp:
         self.result_payloads = hits
         for i, hit in enumerate(hits, 1):
             label = Path(hit.get("url") or "未知文档").name
+            channel = hit.get("channel", "unknown")
+            location = hit.get("location") or "-"
             self.results.insert(
                 self.tk.END,
-                f"{i:02d}  {hit.get('score', 0):.4f}  {label}  page/tile={hit.get('tile_index', 0) + 1}",
+                f"{i:02d}  {hit.get('score', 0):.4f}  [{channel}]  {label}  位置={location}",
             )
         if hits:
             self.results.selection_set(0)
             self._show_selected_result()
-            self.status_text.set(f"检索完成：返回 {len(hits)} 个视觉块")
+            self.status_text.set(f"混合检索完成：返回 {len(hits)} 个文字、表格或图片结果")
             self.notebook.select(0)
         else:
             self.status_text.set("没有检索到结果")
@@ -698,13 +684,13 @@ class StudioApp:
             self.preview_image = ImageTk.PhotoImage(image)
             self.preview.configure(image=self.preview_image, text="")
         else:
-            self.preview.configure(image="", text="该结果未返回预览图")
+            text_preview = hit.get("text") or hit.get("context") or "该结果没有图片预览"
+            self.preview.configure(image="", text=text_preview)
         self.result_meta.configure(
             text=(
                 f"文档：{hit.get('url', '')}\n"
-                f"相似度：{hit.get('score', 0):.5f}    "
-                f"tile：{hit.get('tile_index', 0)}    chunk：{hit.get('chunk_index', 0)}    "
-                f"y-offset：{hit.get('y_offset', 0)}"
+                f"通道：{hit.get('channel', '')}    类型：{hit.get('kind', '')}    "
+                f"得分：{hit.get('score', 0):.5f}    位置：{hit.get('location', '')}"
             )
         )
 
@@ -742,7 +728,7 @@ class StudioApp:
             self.build_process = None
             self.build_button.configure(state="normal")
             if code == 0 and self._index_ready():
-                self.status_text.set("视觉索引构建完成，可以启动搜索服务")
+                self.status_text.set("Hybrid 混合索引构建完成，可以启动搜索服务")
             else:
                 self.status_text.set(f"索引构建失败（退出码 {code}），请查看运行日志")
         if self.ingest_process and self.ingest_process.poll() is not None:

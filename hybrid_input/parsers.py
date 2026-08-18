@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import atexit
 import hashlib
 import html
 import json
 import re
 import shutil
+import socket
 import subprocess
+import time
+import urllib.request
 from pathlib import Path
 
 from .contracts import Artifact, ArtifactBundle, Provenance
@@ -169,11 +173,72 @@ class PyMuPdfParser(DocumentParser):
 
 
 class OpenDataLoaderPdfSubprocessParser(DocumentParser):
-    name = "opendataloader-pdf"
+    name = "opendataloader-pdf-hybrid"
 
     def __init__(self, python_executable: Path, worker_script: Path | None = None) -> None:
         self.python_executable = Path(python_executable)
         self.worker_script = worker_script or Path(__file__).with_name("opendataloader_worker.py")
+        self._hybrid_process: subprocess.Popen[str] | None = None
+        self._hybrid_url: str | None = None
+        atexit.register(self.close)
+
+    @staticmethod
+    def _free_port() -> int:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+            listener.bind(("127.0.0.1", 0))
+            return int(listener.getsockname()[1])
+
+    def _ensure_hybrid_server(self) -> str:
+        if self._hybrid_process and self._hybrid_process.poll() is None and self._hybrid_url:
+            return self._hybrid_url
+        port = self._free_port()
+        command = [
+            str(self.python_executable),
+            "-X", "utf8",
+            "-m", "opendataloader_pdf.hybrid_server",
+            "--host", "127.0.0.1",
+            "--port", str(port),
+            "--log-level", "error",
+            "--device", "cpu",
+        ]
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        self._hybrid_process = subprocess.Popen(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            creationflags=creationflags,
+        )
+        self._hybrid_url = f"http://127.0.0.1:{port}"
+        deadline = time.monotonic() + 300
+        last_error = "server did not become ready"
+        while time.monotonic() < deadline:
+            if self._hybrid_process.poll() is not None:
+                raise RuntimeError(
+                    f"OpenDataLoader Hybrid server exited with status {self._hybrid_process.returncode}"
+                )
+            try:
+                with urllib.request.urlopen(f"{self._hybrid_url}/health", timeout=2) as response:
+                    if response.status == 200:
+                        return self._hybrid_url
+            except Exception as exc:
+                last_error = str(exc)
+            time.sleep(0.5)
+        self.close()
+        raise RuntimeError(f"OpenDataLoader Hybrid server startup timed out: {last_error}")
+
+    def close(self) -> None:
+        process = self._hybrid_process
+        self._hybrid_process = None
+        self._hybrid_url = None
+        if process and process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5)
 
     def supports(self, document_type: str) -> bool:
         return document_type == "pdf"
@@ -181,12 +246,14 @@ class OpenDataLoaderPdfSubprocessParser(DocumentParser):
     def parse(self, source: Path, output_dir: Path, document_type: str) -> ArtifactBundle:
         if not self.python_executable.is_file():
             raise RuntimeError(f"OpenDataLoader Python environment not found: {self.python_executable}")
+        hybrid_url = self._ensure_hybrid_server()
         result_path = output_dir / "opendataloader-result.json"
         command = [
             str(self.python_executable), str(self.worker_script),
             "--input", str(source.resolve()),
             "--output", str(output_dir.resolve()),
             "--result", str(result_path.resolve()),
+            "--hybrid-url", hybrid_url,
         ]
         result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace")
         if result.returncode != 0:

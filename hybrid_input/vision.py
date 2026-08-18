@@ -122,6 +122,7 @@ class PixelRAGEmbeddingSession:
             prefix = f"Instruct: {instruction}\n" if instruction else ""
 
             for index, item in enumerate(items):
+                print(f"Pixel image embedding {index + 1}/{len(items)}", flush=True)
                 with Image.open(item["path"]) as source:
                     image = _clamp_width(source.convert("RGB"))
                 messages = [
@@ -154,6 +155,55 @@ class PixelRAGEmbeddingSession:
                     pooled = pooled / pooled.norm()
                     embeddings[index] = pooled.cpu().numpy().astype(np.float16)
             return embeddings
+
+    def embed_texts(self, texts: list[str], instruction: str = "") -> Any:
+        """Embed text queries in the same space as the resident image model."""
+        with self._lock:
+            self._ensure_loaded()
+            assert self._model is not None
+            assert self._processor is not None
+            assert self._torch is not None
+            assert self.resolved_device is not None
+
+            messages = []
+            for value in texts:
+                conversation = []
+                if instruction:
+                    conversation.append(
+                        {
+                            "role": "system",
+                            "content": [{"type": "text", "text": instruction}],
+                        }
+                    )
+                conversation.append(
+                    {
+                        "role": "user",
+                        "content": [{"type": "text", "text": value}],
+                    }
+                )
+                messages.append(conversation)
+            rendered = [
+                self._processor.apply_chat_template(
+                    conversation, tokenize=False, add_generation_prompt=True
+                )
+                for conversation in messages
+            ]
+            inputs = self._processor(text=rendered, return_tensors="pt", padding=True)
+            if self.resolved_device != "cpu":
+                inputs = {
+                    key: value.to(self.resolved_device) if hasattr(value, "to") else value
+                    for key, value in inputs.items()
+                }
+            with self._torch.no_grad():
+                outputs = self._model.model(**inputs)
+            last_hidden = outputs.last_hidden_state
+            last_indices = inputs["attention_mask"].sum(dim=1) - 1
+            pooled = last_hidden[
+                self._torch.arange(last_hidden.size(0), device=last_hidden.device),
+                last_indices,
+            ]
+            pooled = self._torch.nn.functional.normalize(pooled, p=2, dim=-1)
+            return pooled.cpu().float().numpy()
 
     def close(self) -> None:
         """Release the resident model before process shutdown when desired."""

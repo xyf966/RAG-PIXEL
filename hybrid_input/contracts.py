@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = "1.0"
+SCHEMA_VERSION = "1.1"
 
 
 @dataclass(slots=True)
@@ -37,6 +37,9 @@ class Artifact:
     parent_block_id: str | None = None
     sha256: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    # Only meaningful when kind == "visual".  Recognition identifies the
+    # visual region; a later index stage may materialize it as pixels.
+    visual_type: str | None = None
 
 
 @dataclass(slots=True)

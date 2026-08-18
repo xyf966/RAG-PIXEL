@@ -5,10 +5,15 @@ import unicodedata
 from difflib import SequenceMatcher
 from pathlib import Path
 
-from .contracts import Artifact, ArtifactBundle
+from .contracts import Artifact, ArtifactBundle, Provenance
 from .interfaces import LayoutEnricher
 from .parsers import PyMuPdfParser
-from .renderers import MicrosoftExcelChartSubprocessRenderer, MicrosoftOfficeSubprocessRenderer
+from .renderers import (
+    MicrosoftExcelChartSubprocessRenderer,
+    MicrosoftOfficeSubprocessRenderer,
+    MicrosoftOfficeVisualSubprocessRenderer,
+    MicrosoftWordVisualSubprocessRenderer,
+)
 
 
 def _normalized_text(value: str | None) -> str:
@@ -119,7 +124,11 @@ def align_layout(native: ArtifactBundle, rendered: ArtifactBundle) -> ArtifactBu
     for artifact in native.artifacts:
         if artifact.kind != "image" or not artifact.asset_path or not unused:
             continue
-        if artifact.metadata.get("rendered_from_layout") or artifact.metadata.get("rendered_from_excel_com"):
+        if (
+            artifact.metadata.get("rendered_from_layout")
+            or artifact.metadata.get("rendered_from_excel_com")
+            or artifact.metadata.get("rendered_from_word_com")
+        ):
             continue
         try:
             native_hash = _image_hash(artifact.asset_path)
@@ -181,6 +190,312 @@ def materialize_visual_tasks(bundle: ArtifactBundle, pdf_path: Path, output_dir:
         document.close()
 
 
+def materialize_word_visuals(
+    bundle: ArtifactBundle,
+    pdf_path: Path,
+    visuals: list[dict[str, object]],
+    output_dir: Path,
+) -> None:
+    """Crop Word pictures, icons, charts and text shapes using COM page bounds."""
+    import pymupdf
+
+    if not visuals:
+        bundle.warnings.append("Word visual inspector produced no objects")
+        return
+    candidates = [
+        artifact for artifact in bundle.artifacts if artifact.kind in {"image", "visual_task"}
+    ]
+    image_dir = output_dir / "raw-images"
+    image_dir.mkdir(parents=True, exist_ok=True)
+    document = pymupdf.open(pdf_path)
+    added: list[Artifact] = []
+    try:
+        for index, visual in enumerate(visuals):
+            page_number = int(visual.get("page") or 0)
+            bounds = visual.get("bounds_points")
+            if page_number < 1 or page_number > document.page_count:
+                bundle.warnings.append(f"Word visual page is out of range: {index}")
+                continue
+            if not isinstance(bounds, list) or len(bounds) != 4:
+                bundle.warnings.append(f"Word visual has no bounds: {index}")
+                continue
+            page = document.load_page(page_number - 1)
+            clip = pymupdf.Rect(*(float(value) for value in bounds)) & page.rect
+            if clip.is_empty or clip.width < 1 or clip.height < 1:
+                bundle.warnings.append(f"Word visual has an empty bbox: {index}")
+                continue
+            if index < len(candidates):
+                artifact = candidates[index]
+            else:
+                artifact = Artifact(
+                    block_id=f"{bundle.document_id[:16]}:word-visual-{index:06d}",
+                    kind="image",
+                    provenance=Provenance(bundle.source_path),
+                    reading_order=max(
+                        (item.reading_order for item in bundle.artifacts), default=0
+                    ) + index + 1,
+                )
+                added.append(artifact)
+            native_path = Path(str(visual.get("path") or ""))
+            if native_path.is_file():
+                destination = native_path
+                render_method = str(visual.get("render_method") or "word-copy-as-picture")
+            else:
+                destination = image_dir / f"word-visual-{index:06d}.png"
+                page.get_pixmap(matrix=pymupdf.Matrix(2, 2), clip=clip, alpha=False).save(
+                    destination
+                )
+                render_method = "page-crop-fallback"
+            artifact.kind = "image"
+            artifact.asset_path = str(destination.resolve())
+            artifact.provenance.page = page_number
+            artifact.provenance.bbox_original = [float(value) for value in bounds]
+            artifact.provenance.bbox = [
+                clip.x0 / page.rect.width,
+                clip.y0 / page.rect.height,
+                clip.x1 / page.rect.width,
+                clip.y1 / page.rect.height,
+            ]
+            artifact.provenance.locator = f"word-visual:{index}"
+            artifact.metadata["rendered_from_word_com"] = True
+            # Word has already identified the exact visual object.  Do not let
+            # nearby-text enrichment attach an unrelated adjacent shape/label.
+            artifact.metadata["context_locked"] = True
+            artifact.metadata["word_object_type"] = visual.get("object_type")
+            artifact.metadata["word_collection"] = visual.get("collection")
+            artifact.metadata["office_render_method"] = render_method
+            text = str(visual.get("text") or "").strip()
+            if text:
+                artifact.context = text
+                added.append(
+                    Artifact(
+                        block_id=f"{artifact.block_id}:text",
+                        kind="text",
+                        provenance=Provenance(
+                            source_file=Path(bundle.source_path).name,
+                            page=page_number,
+                            bbox=list(artifact.provenance.bbox),
+                            bbox_original=list(artifact.provenance.bbox_original),
+                            locator=f"word-visual-text:{index}",
+                        ),
+                        text=text,
+                        reading_order=artifact.reading_order,
+                        parent_block_id=artifact.block_id,
+                        metadata={"structure_origin": "word-com-visual"},
+                    )
+                )
+    finally:
+        document.close()
+    bundle.artifacts.extend(added)
+
+
+def _new_visual_artifact(bundle: ArtifactBundle, family: str, index: int) -> Artifact:
+    return Artifact(
+        block_id=f"{bundle.document_id[:16]}:{family}-visual-{index:06d}",
+        kind="image",
+        provenance=Provenance(source_file=Path(bundle.source_path).name),
+        reading_order=max((item.reading_order for item in bundle.artifacts), default=0) + index + 1,
+    )
+
+
+def _office_visual_type(visual: dict[str, object]) -> str:
+    object_type = int(visual.get("object_type") or 0)
+    if object_type == 3:
+        return "chart"
+    if object_type in {21, 24}:
+        return "diagram"
+    if object_type in {16, 30}:
+        return "icon"
+    return "image"
+
+
+def recognize_office_visuals(
+    bundle: ArtifactBundle, visuals: list[dict[str, object]]
+) -> None:
+    """Attach Office-native visual identity/location without exporting pixels."""
+    candidates = [item for item in bundle.artifacts if item.kind in {"image", "visual_task", "visual"}]
+    added: list[Artifact] = []
+    family = {"doc": "word", "docx": "word", "ppt": "ppt", "pptx": "ppt", "xls": "excel", "xlsx": "excel"}[bundle.document_type]
+    for index, visual in enumerate(visuals):
+        artifact = candidates[index] if index < len(candidates) else _new_visual_artifact(bundle, family, index)
+        if index >= len(candidates):
+            added.append(artifact)
+        artifact.kind = "visual"
+        artifact.visual_type = _office_visual_type(visual)
+        artifact.asset_path = None
+        artifact.metadata.update({
+            "structure_origin": "office-native-visual",
+            "office_object_type": visual.get("object_type"),
+            "office_collection": visual.get("collection"),
+            "office_shape_index": visual.get("shape_index") or visual.get("collection_index"),
+            "materialization_status": "deferred-to-index",
+        })
+        bounds = visual.get("bounds_points")
+        if isinstance(bounds, list) and len(bounds) == 4:
+            artifact.provenance.bbox_original = [float(value) for value in bounds]
+        if family == "word":
+            artifact.provenance.page = int(visual.get("page") or 0) or artifact.provenance.page
+        elif family == "ppt":
+            artifact.provenance.slide = int(visual.get("slide") or 0) or artifact.provenance.slide
+            artifact.provenance.page = artifact.provenance.slide
+        else:
+            artifact.provenance.sheet = str(visual.get("sheet") or "") or artifact.provenance.sheet
+            artifact.provenance.cell_range = str(visual.get("cell_range") or "") or artifact.provenance.cell_range
+        artifact.provenance.locator = f"{family}-visual:{index}"
+        text = str(visual.get("text") or "").strip()
+        if text:
+            artifact.context = text
+            artifact.metadata["context_locked"] = True
+    bundle.artifacts.extend(added)
+
+
+def _add_visual_text(
+    bundle: ArtifactBundle,
+    artifact: Artifact,
+    text: str,
+    locator: str,
+    added: list[Artifact],
+) -> None:
+    if not text:
+        return
+    artifact.context = text
+    added.append(
+        Artifact(
+            block_id=f"{artifact.block_id}:text",
+            kind="text",
+            provenance=Provenance(
+                source_file=Path(bundle.source_path).name,
+                page=artifact.provenance.page,
+                slide=artifact.provenance.slide,
+                sheet=artifact.provenance.sheet,
+                cell_range=artifact.provenance.cell_range,
+                bbox=artifact.provenance.bbox,
+                bbox_original=artifact.provenance.bbox_original,
+                locator=locator,
+            ),
+            text=text,
+            reading_order=artifact.reading_order,
+            parent_block_id=artifact.block_id,
+            metadata={"structure_origin": "office-native-visual"},
+        )
+    )
+
+
+def materialize_powerpoint_visuals(
+    bundle: ArtifactBundle,
+    pdf_path: Path,
+    visuals: list[dict[str, object]],
+    output_dir: Path,
+) -> None:
+    """Use native PowerPoint shape exports, with slide cropping as fallback."""
+    import pymupdf
+
+    candidates = [item for item in bundle.artifacts if item.kind in {"image", "visual_task"}]
+    added: list[Artifact] = []
+    image_dir = output_dir / "raw-images"
+    image_dir.mkdir(parents=True, exist_ok=True)
+    document = pymupdf.open(pdf_path)
+    try:
+        for index, visual in enumerate(visuals):
+            slide = int(visual.get("slide") or 0)
+            artifact = candidates[index] if index < len(candidates) else _new_visual_artifact(bundle, "ppt", index)
+            if index >= len(candidates):
+                added.append(artifact)
+            native_path = Path(str(visual.get("path") or ""))
+            bounds = visual.get("bounds_points")
+            render_method = str(visual.get("render_method") or "powerpoint-shape-export")
+            if native_path.is_file():
+                destination = native_path
+            elif 1 <= slide <= document.page_count and isinstance(bounds, list) and len(bounds) == 4:
+                page = document.load_page(slide - 1)
+                clip = pymupdf.Rect(*(float(value) for value in bounds)) & page.rect
+                if clip.is_empty:
+                    bundle.warnings.append(f"PowerPoint visual has an empty bbox: {index}")
+                    continue
+                destination = image_dir / f"ppt-visual-{index:06d}.png"
+                page.get_pixmap(matrix=pymupdf.Matrix(2, 2), clip=clip, alpha=False).save(destination)
+                render_method = "page-crop-fallback"
+            else:
+                bundle.warnings.append(f"PowerPoint visual could not be rendered: {index}")
+                continue
+            artifact.kind = "image"
+            artifact.asset_path = str(destination.resolve())
+            artifact.provenance.slide = slide or artifact.provenance.slide
+            artifact.provenance.page = slide or artifact.provenance.page
+            artifact.provenance.locator = f"powerpoint-shape:{visual.get('shape_index') or index}"
+            if isinstance(bounds, list) and len(bounds) == 4:
+                artifact.provenance.bbox_original = [float(value) for value in bounds]
+            artifact.metadata.update(
+                {
+                    "rendered_from_powerpoint_com": True,
+                    "context_locked": True,
+                    "office_render_method": render_method,
+                    "powerpoint_shape_index": visual.get("shape_index"),
+                    "powerpoint_object_type": visual.get("object_type"),
+                }
+            )
+            _add_visual_text(
+                bundle, artifact, str(visual.get("text") or "").strip(),
+                f"powerpoint-shape-text:{visual.get('shape_index') or index}", added,
+            )
+    finally:
+        document.close()
+    bundle.artifacts.extend(added)
+
+
+def materialize_excel_visuals(
+    bundle: ArtifactBundle,
+    visuals: list[dict[str, object]],
+) -> None:
+    """Use native Excel exports for charts, pictures, SmartArt and groups."""
+    candidates = [item for item in bundle.artifacts if item.kind in {"image", "visual_task"}]
+    unused = set(range(len(candidates)))
+    added: list[Artifact] = []
+    for index, visual in enumerate(visuals):
+        path = Path(str(visual.get("path") or ""))
+        if not path.is_file():
+            bundle.warnings.append(f"Excel visual native export failed: {index}")
+            continue
+        sheet = str(visual.get("sheet") or "")
+        same_sheet = [
+            candidate_index for candidate_index in unused
+            if candidates[candidate_index].provenance.sheet == sheet
+        ]
+        if same_sheet:
+            candidate_index = same_sheet[0]
+            artifact = candidates[candidate_index]
+            unused.remove(candidate_index)
+        elif unused:
+            candidate_index = min(unused)
+            artifact = candidates[candidate_index]
+            unused.remove(candidate_index)
+        else:
+            artifact = _new_visual_artifact(bundle, "excel", index)
+            added.append(artifact)
+        artifact.kind = "image"
+        artifact.asset_path = str(path.resolve())
+        artifact.provenance.sheet = sheet or artifact.provenance.sheet
+        artifact.provenance.cell_range = str(visual.get("cell_range") or "") or None
+        artifact.provenance.locator = f"excel-shape:{visual.get('shape_index') or index}"
+        bounds = visual.get("bounds_points")
+        if isinstance(bounds, list) and len(bounds) == 4:
+            artifact.provenance.bbox_original = [float(value) for value in bounds]
+        artifact.metadata.update(
+            {
+                "rendered_from_excel_com": True,
+                "context_locked": True,
+                "office_render_method": str(visual.get("render_method") or "excel-native-export"),
+                "excel_shape_index": visual.get("shape_index"),
+                "excel_object_type": visual.get("object_type"),
+            }
+        )
+        _add_visual_text(
+            bundle, artifact, str(visual.get("text") or "").strip(),
+            f"excel-shape-text:{visual.get('shape_index') or index}", added,
+        )
+    bundle.artifacts.extend(added)
+
+
 def materialize_excel_charts(
     bundle: ArtifactBundle,
     visuals: list[dict[str, object]],
@@ -228,10 +543,14 @@ class OfficePdfLayoutEnricher(LayoutEnricher):
         renderer: MicrosoftOfficeSubprocessRenderer,
         pdf_parser: PyMuPdfParser | None = None,
         excel_chart_renderer: MicrosoftExcelChartSubprocessRenderer | None = None,
+        word_visual_renderer: MicrosoftWordVisualSubprocessRenderer | None = None,
+        office_visual_renderer: MicrosoftOfficeVisualSubprocessRenderer | None = None,
     ) -> None:
         self.renderer = renderer
         self.pdf_parser = pdf_parser or PyMuPdfParser()
         self.excel_chart_renderer = excel_chart_renderer
+        self.word_visual_renderer = word_visual_renderer
+        self.office_visual_renderer = office_visual_renderer
 
     def supports(self, document_type: str) -> bool:
         return document_type in self.TYPES
@@ -244,11 +563,28 @@ class OfficePdfLayoutEnricher(LayoutEnricher):
         if not outputs:
             bundle.warnings.append("Office layout renderer produced no output")
             return bundle
-        if bundle.document_type in {"xls", "xlsx"} and self.excel_chart_renderer:
+        office_visuals: list[dict[str, object]] | None = None
+        if self.office_visual_renderer:
+            visual_dir = output_dir / "office-visuals"
+            office_visuals = self.office_visual_renderer.render(
+                Path(bundle.source_path), visual_dir, export=False
+            )
+        if office_visuals is not None:
+            recognize_office_visuals(bundle, office_visuals)
+        if bundle.document_type in {"xls", "xlsx"} and office_visuals is not None:
+            pass
+        elif bundle.document_type in {"xls", "xlsx"} and self.excel_chart_renderer:
             chart_dir = output_dir / "excel-charts"
             visuals = self.excel_chart_renderer.render(Path(bundle.source_path), chart_dir)
             materialize_excel_charts(bundle, visuals)
-        materialize_visual_tasks(bundle, outputs[0], output_dir)
+        if bundle.document_type in {"doc", "docx"} and office_visuals is not None:
+            pass
+        elif bundle.document_type in {"doc", "docx"} and self.word_visual_renderer:
+            visual_dir = output_dir / "word-visuals"
+            visuals = self.word_visual_renderer.render(Path(bundle.source_path), visual_dir)
+            materialize_word_visuals(bundle, outputs[0], visuals, output_dir)
+        if bundle.document_type in {"ppt", "pptx"} and office_visuals is not None:
+            pass
         parsed_dir = render_dir / "parsed"
         rendered = self.pdf_parser.parse(outputs[0], parsed_dir, "pdf")
         return align_layout(bundle, rendered)

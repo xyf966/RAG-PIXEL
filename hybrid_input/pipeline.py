@@ -23,8 +23,28 @@ from .parsers import (
 )
 from .processors import PillowImageProcessor
 from .registry import ParserRegistry
-from .renderers import MicrosoftExcelChartSubprocessRenderer, MicrosoftOfficeSubprocessRenderer
+from .renderers import (
+    MicrosoftExcelChartSubprocessRenderer,
+    MicrosoftOfficeSubprocessRenderer,
+    MicrosoftOfficeVisualSubprocessRenderer,
+    MicrosoftWordVisualSubprocessRenderer,
+)
 from .vision import DeferredVisionProcessor, PixelRAGVisionProcessor
+
+
+def _recognition_contract(artifacts: list) -> list:
+    """Normalize parser-specific visual kinds without rasterizing or embedding."""
+    for artifact in artifacts:
+        if artifact.kind not in {"image", "visual_task", "visual"}:
+            continue
+        semantic_type = str(artifact.metadata.get("semantic_type") or "").lower()
+        artifact.kind = "visual"
+        artifact.visual_type = artifact.visual_type or (
+            "chart" if semantic_type == "chart" else
+            str(artifact.metadata.get("visual_type") or "image")
+        )
+        artifact.metadata.setdefault("materialization_status", "deferred-to-index")
+    return artifacts
 
 
 @dataclass(slots=True)
@@ -102,15 +122,17 @@ class HybridPipeline:
             if self.context_enricher
             else bundle.artifacts
         )
-        artifacts = self.image_processor.process(contextualized, staging)
-        vision_results = self.vision_processor.process(artifacts)
+        # Recognition stops at text/table/visual.  It never normalizes pixels
+        # and never invokes Pixel; both belong to index construction.
+        artifacts = _recognition_contract(contextualized)
+        vision_results = []
         providers = {
             "detector": type(self.detector).__name__,
             "parser": bundle.parser,
             "layout_enricher": self.layout_enricher.name if self.layout_enricher else "none",
             "context_enricher": self.context_enricher.name if self.context_enricher else "none",
-            "image_processor": self.image_processor.name,
-            "vision_processor": self.vision_processor.name,
+            "image_processor": "deferred-to-index",
+            "vision_processor": "deferred-to-index",
             "assembler": self.assembler.name,
         }
         result = self.assembler.assemble(bundle, artifacts, vision_results, providers)
@@ -166,7 +188,7 @@ def build_default_pipeline(config: PipelineConfig | None = None, docling_python:
         context_enricher=NearbyTextContextEnricher(),
         layout_enricher=OfficePdfLayoutEnricher(
             MicrosoftOfficeSubprocessRenderer(worker_python),
-            excel_chart_renderer=MicrosoftExcelChartSubprocessRenderer(worker_python),
+            office_visual_renderer=MicrosoftOfficeVisualSubprocessRenderer(worker_python),
         ),
         config=config,
     )

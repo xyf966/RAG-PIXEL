@@ -20,6 +20,16 @@ smoke/
 excel-*-test/
 results/
 
+# Local parser probes and acceptance-run intermediates
+ctcc-openpyxl-*-test/
+input-acceptance-*/
+pdf-odl-probe/
+pdf-structured-*-test/
+pixelrag-mixed-acceptance-*/[0-9][0-9]_*/
+pixelrag-real-validation/
+recognition-boundary-test/
+/images/
+
 # Editor and operating-system noise
 .DS_Store
 Thumbs.db
