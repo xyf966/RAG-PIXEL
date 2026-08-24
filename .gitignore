@@ -29,6 +29,9 @@ pixelrag-mixed-acceptance-*/[0-9][0-9]_*/
 pixelrag-real-validation/
 recognition-boundary-test/
 /images/
+schema2-index-acceptance/
+retrieval-acceptance/
+visual_index_sourse/
 
 # Editor and operating-system noise
 .DS_Store

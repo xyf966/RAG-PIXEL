@@ -118,12 +118,22 @@ def _word_copy_action(application: object, item: object, collection_name: str):
     return copy_shape
 
 
+def _word_plain_copy_action(item: object, collection_name: str):
+    """Copy the underlying Office object to the clipboard as a second native path."""
+    if collection_name == "InlineShapes":
+        return lambda: item.Range.Copy()
+    return lambda: item.Copy()
+
+
 def export_word_visuals(source: Path, output_dir: Path | None) -> list[dict[str, object]]:
     """Export visible Word objects directly; retain page bounds as a fallback."""
     import win32com.client
 
     application = win32com.client.DispatchEx("Word.Application")
-    application.Visible = False
+    # CopyAsPicture relies on Word's active window and clipboard.  Keeping
+    # the application visible is required in interactive COM sessions;
+    # strict indexing never treats a failed copy as a page-crop success.
+    application.Visible = True
     application.DisplayAlerts = 0
     document = None
     visuals: list[dict[str, object]] = []
@@ -131,6 +141,11 @@ def export_word_visuals(source: Path, output_dir: Path | None) -> list[dict[str,
         if output_dir is not None:
             output_dir.mkdir(parents=True, exist_ok=True)
         document = application.Documents.Open(str(source.resolve()), ReadOnly=True)
+        document.Activate()
+        try:
+            application.ActiveWindow.Activate()
+        except Exception:
+            pass
         document.Repaginate()
         for collection_name in ("InlineShapes", "Shapes"):
             collection = getattr(document, collection_name)
@@ -160,6 +175,13 @@ def export_word_visuals(source: Path, output_dir: Path | None) -> list[dict[str,
                     exported = bool(destination) and _save_clipboard_picture(
                         _word_copy_action(application, item, collection_name), destination
                     )
+                    render_method = "word-copy-as-picture"
+                    if not exported and destination:
+                        exported = _save_clipboard_picture(
+                            _word_plain_copy_action(item, collection_name), destination
+                        )
+                        if exported:
+                            render_method = "word-native-clipboard-copy"
                     visuals.append(
                         {
                             "collection": collection_name,
@@ -170,7 +192,7 @@ def export_word_visuals(source: Path, output_dir: Path | None) -> list[dict[str,
                             "object_type": item_type,
                             "text": _word_visual_text(item),
                             "path": str(destination) if exported and destination else None,
-                            "render_method": "word-copy-as-picture" if exported else "page-crop-fallback",
+                            "render_method": render_method if exported else "page-crop-fallback",
                         }
                     )
                 except Exception:
@@ -231,9 +253,18 @@ def export_powerpoint_visuals(source: Path, output_dir: Path | None) -> list[dic
                 shape_type = int(shape.Type)
                 if shape_type not in visual_types or (shape_type == 1 and _has_shape_text(shape)):
                     continue
+                print(
+                    f"PowerPoint native visual export: slide {slide_index}, shape {shape_index}",
+                    flush=True,
+                )
                 destination = ((output_dir / f"slide-{slide_index:04d}-shape-{shape_index:04d}.png").resolve() if output_dir is not None else None)
                 exported = False
-                if destination is not None:
+                shape_width = float(shape.Width)
+                shape_height = float(shape.Height)
+                # Very thin edge decorations can hang PowerPoint's Export
+                # method.  They are not useful visual retrieval objects and
+                # remain eligible for the normal page-crop quality gate.
+                if destination is not None and shape_width >= 12 and shape_height >= 12:
                     try:
                         shape.Export(str(destination), 2)
                         exported = destination.is_file()
@@ -247,7 +278,7 @@ def export_powerpoint_visuals(source: Path, output_dir: Path | None) -> list[dic
                         "object_type": shape_type,
                         "bounds_points": [
                             float(shape.Left), float(shape.Top),
-                            float(shape.Left + shape.Width), float(shape.Top + shape.Height),
+                            float(shape.Left + shape_width), float(shape.Top + shape_height),
                         ],
                         "text": _shape_text(shape),
                         "render_method": "powerpoint-shape-export" if exported else "page-crop-fallback",

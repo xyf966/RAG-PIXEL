@@ -1,0 +1,3038 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-08-24T08:46:11.386317+00:00",
+  "testset": "rich-pdf-schema2-retrieval-v1",
+  "snapshot_build_id": "20260824T034351582057Z-3999474c",
+  "model": "C:\\Users\\XEE8SZH\\Desktop\\多模态输入\\model-cache\\Qwen3-VL-Embedding-2B",
+  "model_load_count": 1,
+  "metrics": {
+    "queries": 30,
+    "evidence_units": 31,
+    "evidence_recall_at_5": 0.9354838709677419,
+    "query_any_recall_at_5": 0.9333333333333333,
+    "query_all_recall_at_5": 0.9333333333333333,
+    "evidence_recall_at_10": 1.0,
+    "query_any_recall_at_10": 1.0,
+    "query_all_recall_at_10": 1.0,
+    "mrr": 0.5330555555555556,
+    "per_modality": {
+      "text": {
+        "recall_at_5": 1.0,
+        "recall_at_10": 1.0,
+        "evidence_units": 6
+      },
+      "table": {
+        "recall_at_5": 1.0,
+        "recall_at_10": 1.0,
+        "evidence_units": 7
+      },
+      "visual": {
+        "recall_at_5": 0.8888888888888888,
+        "recall_at_10": 1.0,
+        "evidence_units": 18
+      }
+    },
+    "latency_ms": {
+      "mean": 5176.239159999871,
+      "median": 1500.6095500011725,
+      "p95": 2203.9241999991646,
+      "cold_first": 110826.9818000008,
+      "warm_mean": 1533.1101034481153
+    }
+  },
+  "thresholds": {
+    "evidence_recall_at_10": 0.85
+  },
+  "results": [
+    {
+      "id": "R001",
+      "question": "PDF 的完整标题是什么？",
+      "source_modality": "title",
+      "locator": "封面标题",
+      "expected_evidence": [
+        {
+          "label": "封面标题",
+          "modality": "text",
+          "page": 1
+        }
+      ],
+      "snapshot_build_id": "20260824T034351582057Z-3999474c",
+      "elapsed_ms": 110826.9818000008,
+      "warnings": [],
+      "evidence": [
+        {
+          "label": "封面标题",
+          "modality": "text",
+          "page": 1,
+          "rank": 1
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "record_id": "c4481718e7f2242b2d7c240ad955dbecd8a661c8dae44677f0e1cb86875df8c6",
+          "modality": "text",
+          "raw_score": 0.45396554470062256,
+          "fusion_score": 0.4703589873235734,
+          "page": 1,
+          "context": ""
+        },
+        {
+          "rank": 2,
+          "record_id": "e52afb1317e5014470e88d56c796ff2d7e5f3c245bf108334c38bca20db9136d",
+          "modality": "table",
+          "raw_score": 0.4474821090698242,
+          "fusion_score": 0.46387555169277506,
+          "page": 1,
+          "context": ""
+        }
+      ]
+    },
+    {
+      "id": "R002",
+      "question": "文档编号和报告负责人分别是什么？",
+      "source_modality": "metadata",
+      "locator": "封面表格",
+      "expected_evidence": [
+        {
+          "label": "封面表格",
+          "modality": "text",
+          "page": 1
+        }
+      ],
+      "snapshot_build_id": "20260824T034351582057Z-3999474c",
+      "elapsed_ms": 1311.3888000007137,
+      "warnings": [],
+      "evidence": [
+        {
+          "label": "封面表格",
+          "modality": "text",
+          "page": 1,
+          "rank": 2
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "record_id": "e52afb1317e5014470e88d56c796ff2d7e5f3c245bf108334c38bca20db9136d",
+          "modality": "table",
+          "raw_score": 0.6338350772857666,
+          "fusion_score": 0.6502285199087174,
+          "page": 1,
+          "context": ""
+        },
+        {
+          "rank": 2,
+          "record_id": "c4481718e7f2242b2d7c240ad955dbecd8a661c8dae44677f0e1cb86875df8c6",
+          "modality": "text",
+          "raw_score": 0.4938092827796936,
+          "fusion_score": 0.5102027254026444,
+          "page": 1,
+          "context": ""
+        },
+        {
+          "rank": 3,
+          "record_id": "06ec4e03e4487f3b69e0284c4de6d455dfad8495623acb3518480c53c15aaf47",
+          "modality": "text",
+          "raw_score": 0.447451651096344,
+          "fusion_score": 0.4635806833544085,
+          "page": 7,
+          "context": "1. 执行摘要与关键指标 / 6. 分区运营明细"
+        },
+        {
+          "rank": 4,
+          "record_id": "8c1c8417e50cbec4e5ea88aefc25bccc60c1f975660c189d51728d2f5421cb96",
+          "modality": "table",
+          "raw_score": 0.43460923433303833,
+          "fusion_score": 0.45073826659110283,
+          "page": 10,
+          "context": ""
+        },
+        {
+          "rank": 5,
+          "record_id": "ba74c89a1dddfee2e79167fa06f14425c8318ef4797b960aeb3bfdf495daffe6",
+          "modality": "table",
+          "raw_score": 0.42615586519241333,
+          "fusion_score": 0.4420288810654292,
+          "page": 9,
+          "context": ""
+        },
+        {
+          "rank": 6,
+          "record_id": "874b595779985418cf580c487b25488365e1f9d4155eef8c818e0e28bd80549d",
+          "modality": "text",
+          "raw_score": 0.40563488006591797,
+          "fusion_score": 0.42150789593893384,
+          "page": 10,
+          "context": "1. 执行摘要与关键指标 / 9. 结论与行动计划"
+        },
+        {
+          "rank": 7,
+          "record_id": "ae4c442ba505181e212ea06e7549e7e23470d266ac58c3a2f1e7d4683e72c4a6",
+          "modality": "table",
+          "raw_score": 0.40324217081069946,
+          "fusion_score": 0.41886717081069946,
+          "page": 7,
+          "context": ""
+        }
+      ]
+    },
+    {
+      "id": "R003",
+      "question": "中心位于哪里、何时投入正式运营？",
+      "source_modality": "body",
+      "locator": "执行摘要",
+      "expected_evidence": [
+        {
+          "label": "执行摘要",
+          "modality": "text",
+          "page": 2
+        }
+      ],
+      "snapshot_build_id": "20260824T034351582057Z-3999474c",
+      "elapsed_ms": 1299.1376999998465,
+      "warnings": [],
+      "evidence": [
+        {
+          "label": "执行摘要",
+          "modality": "text",
+          "page": 2,
+          "rank": 1
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "record_id": "ae52451ee5a4f7591c73bc3f8b1f8970008730628975fd1d48bcc8c17d8d10b9",
+          "modality": "text",
+          "raw_score": 0.5363395810127258,
+          "fusion_score": 0.5527330236356767,
+          "page": 2,
+          "context": "1. 执行摘要与关键指标"
+        },
+        {
+          "rank": 2,
+          "record_id": "c4481718e7f2242b2d7c240ad955dbecd8a661c8dae44677f0e1cb86875df8c6",
+          "modality": "text",
+          "raw_score": 0.4780706763267517,
+          "fusion_score": 0.4941997085848162,
+          "page": 1,
+          "context": ""
+        },
+        {
+          "rank": 3,
+          "record_id": "874b595779985418cf580c487b25488365e1f9d4155eef8c818e0e28bd80549d",
+          "modality": "text",
+          "raw_score": 0.4370224177837372,
+          "fusion_score": 0.45289543365675305,
+          "page": 10,
+          "context": "1. 执行摘要与关键指标 / 9. 结论与行动计划"
+        }
+      ]
+    },
+    {
+      "id": "R004",
+      "question": "2025 年全年订单量和单位能耗分别是多少？",
+      "source_modality": "table",
+      "locator": "关键指标表",
+      "expected_evidence": [
+        {
+          "label": "关键指标表",
+          "modality": "table",
+          "page": 2
+        }
+      ],
+      "snapshot_build_id": "20260824T034351582057Z-3999474c",
+      "elapsed_ms": 1809.7758999974758,
+      "warnings": [],
+      "evidence": [
+        {
+          "label": "关键指标表",
+          "modality": "table",
+          "page": 2,
+          "rank": 1
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "record_id": "a404f578ca663dffc9bb81904634574f5537ca986fc050434464bcdefe1e7551",
+          "modality": "table",
+          "raw_score": 0.6913175582885742,
+          "fusion_score": 0.7077110009115251,
+          "page": 2,
+          "context": ""
+        },
+        {
+          "rank": 2,
+          "record_id": "538c5b7a414c24b0d4c7fd71ee705c248fad7c76239eec3d4f0d5bbf627f336b",
+          "modality": "table",
+          "raw_score": 0.6880952715873718,
+          "fusion_score": 0.7042243038454363,
+          "page": 5,
+          "context": ""
+        },
+        {
+          "rank": 3,
+          "record_id": "25fc55f3195350f0184766238575e7e83b6f9896ba5a15b3bce8fe82f3eb4a78",
+          "modality": "text",
+          "raw_score": 0.6737669706344604,
+          "fusion_score": 0.6901604132574113,
+          "page": 5,
+          "context": "1. 执行摘要与关键指标 / 4. 订单规模与能效"
+        },
+        {
+          "rank": 4,
+          "record_id": "c4481718e7f2242b2d7c240ad955dbecd8a661c8dae44677f0e1cb86875df8c6",
+          "modality": "text",
+          "raw_score": 0.5566291809082031,
+          "fusion_score": 0.5727582131662676,
+          "page": 1,
+          "context": ""
+        },
+        {
+          "rank": 5,
+          "record_id": "ae52451ee5a4f7591c73bc3f8b1f8970008730628975fd1d48bcc8c17d8d10b9",
+          "modality": "text",
+          "raw_score": 0.5351920127868652,
+          "fusion_score": 0.551065028659881,
+          "page": 2,
+          "context": "1. 执行摘要与关键指标"
+        },
+        {
+          "rank": 6,
+          "record_id": "e8c186d208a569803fe534379ee74974910069a740c0458b2501963e4b202c55",
+          "modality": "visual",
+          "raw_score": 0.5167521238327026,
+          "fusion_score": 0.5331455664556535,
+          "page": 5,
+          "context": "4. 订单规模与能效\n图 3 双轴组合图：订单量逐月增加，单位能耗逐月下降。"
+        },
+        {
+          "rank": 7,
+          "record_id": "874b595779985418cf580c487b25488365e1f9d4155eef8c818e0e28bd80549d",
+          "modality": "text",
+          "raw_score": 0.4762916564941406,
+          "fusion_score": 0.4919166564941406,
+          "page": 10,
+          "context": "1. 执行摘要与关键指标 / 9. 结论与行动计划"
+        },
+        {
+          "rank": 8,
+          "record_id": "06ec4e03e4487f3b69e0284c4de6d455dfad8495623acb3518480c53c15aaf47",
+          "modality": "text",
+          "raw_score": 0.4478685259819031,
+          "fusion_score": 0.46325314136651846,
+          "page": 7,
+          "context": "1. 执行摘要与关键指标 / 6. 分区运营明细"
+        },
+        {
+          "rank": 9,
+          "record_id": "8889d2c695cc5b45063103b0c066e0ff8afb8af179a026d5f41ee3d857c5adc7",
+          "modality": "text",
+          "raw_score": 0.429895281791687,
+          "fusion_score": 0.44504679694320215,
+          "page": 8,
+          "context": "1. 执行摘要与关键指标 / 7. 温控热力与空间布局"
+        },
+        {
+          "rank": 10,
+          "record_id": "ae4c442ba505181e212ea06e7549e7e23470d266ac58c3a2f1e7d4683e72c4a6",
+          "modality": "table",
+          "raw_score": 0.42896345257759094,
+          "fusion_score": 0.4448364684506068,
+          "page": 7,
+          "context": ""
+        }
+      ]
+    },
+    {
+      "id": "R005",
+      "question": "4 月冷链合规率下降的原因和修复日期是什么？",
+      "source_modality": "body",
+      "locator": "关键解释",
+      "expected_evidence": [
+        {
+          "label": "关键解释",
+          "modality": "text",
+          "page": 2
+        }
+      ],
+      "snapshot_build_id": "20260824T034351582057Z-3999474c",
+      "elapsed_ms": 1435.2389999985462,
+      "warnings": [],
+      "evidence": [
+        {
+          "label": "关键解释",
+          "modality": "text",
+          "page": 2,
+          "rank": 2
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "record_id": "846f87b236db56c7e50ecc1c582ddc41b0a295ea449a24dca4ab72da0910ef6f",
+          "modality": "text",
+          "raw_score": 0.6160043478012085,
+          "fusion_score": 0.6323977904241593,
+          "page": 4,
+          "context": "1. 执行摘要与关键指标 / 3. 服务质量月度趋势"
+        },
+        {
+          "rank": 2,
+          "record_id": "ae52451ee5a4f7591c73bc3f8b1f8970008730628975fd1d48bcc8c17d8d10b9",
+          "modality": "text",
+          "raw_score": 0.6119827032089233,
+          "fusion_score": 0.6281117354669878,
+          "page": 2,
+          "context": "1. 执行摘要与关键指标"
+        },
+        {
+          "rank": 3,
+          "record_id": "874b595779985418cf580c487b25488365e1f9d4155eef8c818e0e28bd80549d",
+          "modality": "text",
+          "raw_score": 0.5623891353607178,
+          "fusion_score": 0.5782621512337336,
+          "page": 10,
+          "context": "1. 执行摘要与关键指标 / 9. 结论与行动计划"
+        },
+        {
+          "rank": 4,
+          "record_id": "c4481718e7f2242b2d7c240ad955dbecd8a661c8dae44677f0e1cb86875df8c6",
+          "modality": "text",
+          "raw_score": 0.5607177019119263,
+          "fusion_score": 0.5763427019119263,
+          "page": 1,
+          "context": ""
+        },
+        {
+          "rank": 5,
+          "record_id": "a404f578ca663dffc9bb81904634574f5537ca986fc050434464bcdefe1e7551",
+          "modality": "table",
+          "raw_score": 0.5268434286117554,
+          "fusion_score": 0.5432368712347062,
+          "page": 2,
+          "context": ""
+        },
+        {
+          "rank": 6,
+          "record_id": "ae4c442ba505181e212ea06e7549e7e23470d266ac58c3a2f1e7d4683e72c4a6",
+          "modality": "table",
+          "raw_score": 0.4604021906852722,
+          "fusion_score": 0.4765312229433367,
+          "page": 7,
+          "context": ""
+        },
+        {
+          "rank": 7,
+          "record_id": "ba74c89a1dddfee2e79167fa06f14425c8318ef4797b960aeb3bfdf495daffe6",
+          "modality": "table",
+          "raw_score": 0.45970651507377625,
+          "fusion_score": 0.4755795309467921,
+          "page": 9,
+          "context": ""
+        },
+        {
+          "rank": 8,
+          "record_id": "ac68fbd56efbcc7ec20525ec54a0314022a680358241632f813fdd66bdeb0219",
+          "modality": "text",
+          "raw_score": 0.4560941457748413,
+          "fusion_score": 0.4714787611594567,
+          "page": 3,
+          "context": "1. 执行摘要与关键指标 / 2. 现场视觉巡检"
+        },
+        {
+          "rank": 9,
+          "record_id": "8c1c8417e50cbec4e5ea88aefc25bccc60c1f975660c189d51728d2f5421cb96",
+          "modality": "table",
+          "raw_score": 0.4502127170562744,
+          "fusion_score": 0.4658377170562744,
+          "page": 10,
+          "context": ""
+        },
+        {
+          "rank": 10,
+          "record_id": "06ec4e03e4487f3b69e0284c4de6d455dfad8495623acb3518480c53c15aaf47",
+          "modality": "text",
+          "raw_score": 0.4333536624908447,
+          "fusion_score": 0.44850517764235986,
+          "page": 7,
+          "context": "1. 执行摘要与关键指标 / 6. 分区运营明细"
+        }
+      ]
+    },
+    {
+      "id": "R006",
+      "question": "图片中工程师的安全帽和反光背心分别是什么颜色？",
+      "source_modality": "image",
+      "locator": "图1",
+      "expected_evidence": [
+        {
+          "label": "图1",
+          "modality": "visual",
+          "page": 3
+        }
+      ],
+      "snapshot_build_id": "20260824T034351582057Z-3999474c",
+      "elapsed_ms": 1442.8109000000404,
+      "warnings": [],
+      "evidence": [
+        {
+          "label": "图1",
+          "modality": "visual",
+          "page": 3,
+          "rank": 3
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "record_id": "5bf164b444427c59bc61513002da552099b65c2de16f3bfc72f2d3a06b3101e7",
+          "modality": "table",
+          "raw_score": 0.5104392766952515,
+          "fusion_score": 0.5268327193182023,
+          "page": 3,
+          "context": ""
+        },
+        {
+          "rank": 2,
+          "record_id": "ac68fbd56efbcc7ec20525ec54a0314022a680358241632f813fdd66bdeb0219",
+          "modality": "text",
+          "raw_score": 0.45734331011772156,
+          "fusion_score": 0.4737367527406724,
+          "page": 3,
+          "context": "1. 执行摘要与关键指标 / 2. 现场视觉巡检"
+        },
+        {
+          "rank": 3,
+          "record_id": "3a533133e400001e010dea07f80311c063c60a639609d8da8b7b99d2a2ecd8b4",
+          "modality": "visual",
+          "raw_score": 0.4327375888824463,
+          "fusion_score": 0.4491310315053971,
+          "page": 3,
+          "context": "2. 现场视觉巡检\n图 1 冷链智能巡检现场。答案应基于图片本身，而非附近文字推测。"
+        },
+        {
+          "rank": 4,
+          "record_id": "166fc2d3b5590517121e615ce69518cffe977eca0e08c1d12376fa5c8d45ee0c",
+          "modality": "visual",
+          "raw_score": 0.4327375888824463,
+          "fusion_score": 0.4488666211405108,
+          "page": 1,
+          "context": "复杂 PDF 输入基准｜版本 1.0｜2026 年 1 月发布\n| 文档编号 | 保密级别 | 报告负责人 | | --- | --- | --- | | NEBULA-PDF-RICH-2025-05 | 内部测试 | 苏衡 |"
+        }
+      ]
+    },
+    {
+      "id": "R007",
+      "question": "图片中有几台绿色移动机器人和几个银色保温货箱？",
+      "source_modality": "image",
+      "locator": "图1",
+      "expected_evidence": [
+        {
+          "label": "图1",
+          "modality": "visual",
+          "page": 3
+        }
+      ],
+      "snapshot_build_id": "20260824T034351582057Z-3999474c",
+      "elapsed_ms": 1483.183199998166,
+      "warnings": [],
+      "evidence": [
+        {
+          "label": "图1",
+          "modality": "visual",
+          "page": 3,
+          "rank": 3
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "record_id": "5bf164b444427c59bc61513002da552099b65c2de16f3bfc72f2d3a06b3101e7",
+          "modality": "table",
+          "raw_score": 0.5663284063339233,
+          "fusion_score": 0.5827218489568742,
+          "page": 3,
+          "context": ""
+        },
+        {
+          "rank": 2,
+          "record_id": "ac68fbd56efbcc7ec20525ec54a0314022a680358241632f813fdd66bdeb0219",
+          "modality": "text",
+          "raw_score": 0.5301540493965149,
+          "fusion_score": 0.5465474920194657,
+          "page": 3,
+          "context": "1. 执行摘要与关键指标 / 2. 现场视觉巡检"
+        },
+        {
+          "rank": 3,
+          "record_id": "3a533133e400001e010dea07f80311c063c60a639609d8da8b7b99d2a2ecd8b4",
+          "modality": "visual",
+          "raw_score": 0.5209685564041138,
+          "fusion_score": 0.5373619990270646,
+          "page": 3,
+          "context": "2. 现场视觉巡检\n图 1 冷链智能巡检现场。答案应基于图片本身，而非附近文字推测。"
+        },
+        {
+          "rank": 4,
+          "record_id": "166fc2d3b5590517121e615ce69518cffe977eca0e08c1d12376fa5c8d45ee0c",
+          "modality": "visual",
+          "raw_score": 0.5209685564041138,
+          "fusion_score": 0.5370975886621783,
+          "page": 1,
+          "context": "复杂 PDF 输入基准｜版本 1.0｜2026 年 1 月发布\n| 文档编号 | 保密级别 | 报告负责人 | | --- | --- | --- | | NEBULA-PDF-RICH-2025-05 | 内部测试 | 苏衡 |"
+        },
+        {
+          "rank": 5,
+          "record_id": "c4481718e7f2242b2d7c240ad955dbecd8a661c8dae44677f0e1cb86875df8c6",
+          "modality": "text",
+          "raw_score": 0.4630814790725708,
+          "fusion_score": 0.4792105113306353,
+          "page": 1,
+          "context": ""
+        },
+        {
+          "rank": 6,
+          "record_id": "8889d2c695cc5b45063103b0c066e0ff8afb8af179a026d5f41ee3d857c5adc7",
+          "modality": "text",
+          "raw_score": 0.4559426009654999,
+          "fusion_score": 0.47181561683851575,
+          "page": 8,
+          "context": "1. 执行摘要与关键指标 / 7. 温控热力与空间布局"
+        },
+        {
+          "rank": 7,
+          "record_id": "ae4c442ba505181e212ea06e7549e7e23470d266ac58c3a2f1e7d4683e72c4a6",
+          "modality": "table",
+          "raw_score": 0.4279319643974304,
+          "fusion_score": 0.4440609966554949,
+          "page": 7,
+          "context": ""
+        },
+        {
+          "rank": 8,
+          "record_id": "874b595779985418cf580c487b25488365e1f9d4155eef8c818e0e28bd80549d",
+          "modality": "text",
+          "raw_score": 0.42663854360580444,
+          "fusion_score": 0.44226354360580444,
+          "page": 10,
+          "context": "1. 执行摘要与关键指标 / 9. 结论与行动计划"
+        },
+        {
+          "rank": 9,
+          "record_id": "ae52451ee5a4f7591c73bc3f8b1f8970008730628975fd1d48bcc8c17d8d10b9",
+          "modality": "text",
+          "raw_score": 0.4121074080467224,
+          "fusion_score": 0.4274920234313378,
+          "page": 2,
+          "context": "1. 执行摘要与关键指标"
+        },
+        {
+          "rank": 10,
+          "record_id": "846f87b236db56c7e50ecc1c582ddc41b0a295ea449a24dca4ab72da0910ef6f",
+          "modality": "text",
+          "raw_score": 0.4054832458496094,
+          "fusion_score": 0.4206347610011245,
+          "page": 4,
+          "context": "1. 执行摘要与关键指标 / 3. 服务质量月度趋势"
+        }
+      ]
+    },
+    {
+      "id": "R008",
+      "question": "红色灭火器位于画面哪侧，其上方是什么标志？",
+      "source_modality": "image",
+      "locator": "图1",
+      "expected_evidence": [
+        {
+          "label": "图1",
+          "modality": "visual",
+          "page": 3
+        }
+      ],
+      "snapshot_build_id": "20260824T034351582057Z-3999474c",
+      "elapsed_ms": 1568.8234000008379,
+      "warnings": [],
+      "evidence": [
+        {
+          "label": "图1",
+          "modality": "visual",
+          "page": 3,
+          "rank": 3
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "record_id": "5bf164b444427c59bc61513002da552099b65c2de16f3bfc72f2d3a06b3101e7",
+          "modality": "table",
+          "raw_score": 0.46531686186790466,
+          "fusion_score": 0.4817103044908555,
+          "page": 3,
+          "context": ""
+        },
+        {
+          "rank": 2,
+          "record_id": "ac68fbd56efbcc7ec20525ec54a0314022a680358241632f813fdd66bdeb0219",
+          "modality": "text",
+          "raw_score": 0.4304601848125458,
+          "fusion_score": 0.4468536274354966,
+          "page": 3,
+          "context": "1. 执行摘要与关键指标 / 2. 现场视觉巡检"
+        },
+        {
+          "rank": 3,
+          "record_id": "3a533133e400001e010dea07f80311c063c60a639609d8da8b7b99d2a2ecd8b4",
+          "modality": "visual",
+          "raw_score": 0.41392019391059875,
+          "fusion_score": 0.4303136365335496,
+          "page": 3,
+          "context": "2. 现场视觉巡检\n图 1 冷链智能巡检现场。答案应基于图片本身，而非附近文字推测。"
+        },
+        {
+          "rank": 4,
+          "record_id": "166fc2d3b5590517121e615ce69518cffe977eca0e08c1d12376fa5c8d45ee0c",
+          "modality": "visual",
+          "raw_score": 0.41392019391059875,
+          "fusion_score": 0.43004922616866326,
+          "page": 1,
+          "context": "复杂 PDF 输入基准｜版本 1.0｜2026 年 1 月发布\n| 文档编号 | 保密级别 | 报告负责人 | | --- | --- | --- | | NEBULA-PDF-RICH-2025-05 | 内部测试 | 苏衡 |"
+        },
+        {
+          "rank": 5,
+          "record_id": "8889d2c695cc5b45063103b0c066e0ff8afb8af179a026d5f41ee3d857c5adc7",
+          "modality": "text",
+          "raw_score": 0.40576380491256714,
+          "fusion_score": 0.42189283717063164,
+          "page": 8,
+          "context": "1. 执行摘要与关键指标 / 7. 温控热力与空间布局"
+        }
+      ]
+    },
+    {
+      "id": "R009",
+      "question": "哪一指标在 4 月低于 98% 目标线？数值是多少？",
+      "source_modality": "chart",
+      "locator": "图2",
+      "expected_evidence": [
+        {
+          "label": "图2",
+          "modality": "visual",
+          "page": 4
+        }
+      ],
+      "snapshot_build_id": "20260824T034351582057Z-3999474c",
+      "elapsed_ms": 1530.9803999989526,
+      "warnings": [],
+      "evidence": [
+        {
+          "label": "图2",
+          "modality": "visual",
+          "page": 4,
+          "rank": 8
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "record_id": "846f87b236db56c7e50ecc1c582ddc41b0a295ea449a24dca4ab72da0910ef6f",
+          "modality": "text",
+          "raw_score": 0.5982182025909424,
+          "fusion_score": 0.6146116452138932,
+          "page": 4,
+          "context": "1. 执行摘要与关键指标 / 3. 服务质量月度趋势"
+        },
+        {
+          "rank": 2,
+          "record_id": "a404f578ca663dffc9bb81904634574f5537ca986fc050434464bcdefe1e7551",
+          "modality": "table",
+          "raw_score": 0.5243878960609436,
+          "fusion_score": 0.5407813386838944,
+          "page": 2,
+          "context": ""
+        },
+        {
+          "rank": 3,
+          "record_id": "538c5b7a414c24b0d4c7fd71ee705c248fad7c76239eec3d4f0d5bbf627f336b",
+          "modality": "table",
+          "raw_score": 0.4842734932899475,
+          "fusion_score": 0.500402525548012,
+          "page": 5,
+          "context": ""
+        },
+        {
+          "rank": 4,
+          "record_id": "874b595779985418cf580c487b25488365e1f9d4155eef8c818e0e28bd80549d",
+          "modality": "text",
+          "raw_score": 0.4736749827861786,
+          "fusion_score": 0.4898040150442431,
+          "page": 10,
+          "context": "1. 执行摘要与关键指标 / 9. 结论与行动计划"
+        },
+        {
+          "rank": 5,
+          "record_id": "ae52451ee5a4f7591c73bc3f8b1f8970008730628975fd1d48bcc8c17d8d10b9",
+          "modality": "text",
+          "raw_score": 0.4705190658569336,
+          "fusion_score": 0.48639208172994947,
+          "page": 2,
+          "context": "1. 执行摘要与关键指标"
+        },
+        {
+          "rank": 6,
+          "record_id": "06ec4e03e4487f3b69e0284c4de6d455dfad8495623acb3518480c53c15aaf47",
+          "modality": "text",
+          "raw_score": 0.44801175594329834,
+          "fusion_score": 0.46363675594329834,
+          "page": 7,
+          "context": "1. 执行摘要与关键指标 / 6. 分区运营明细"
+        },
+        {
+          "rank": 7,
+          "record_id": "c4481718e7f2242b2d7c240ad955dbecd8a661c8dae44677f0e1cb86875df8c6",
+          "modality": "text",
+          "raw_score": 0.43979454040527344,
+          "fusion_score": 0.4551791557898888,
+          "page": 1,
+          "context": ""
+        },
+        {
+          "rank": 8,
+          "record_id": "082299dd1b2e5bb0a7c9940e89a7042206cb202aa25e24bb2fe618a42a585286",
+          "modality": "visual",
+          "raw_score": 0.4361303746700287,
+          "fusion_score": 0.4525238172929795,
+          "page": 4,
+          "context": "3. 服务质量月度趋势\n图 2 多系列折线图：准时交付率、设备可用率和冷链合规率。"
+        },
+        {
+          "rank": 9,
+          "record_id": "25fc55f3195350f0184766238575e7e83b6f9896ba5a15b3bce8fe82f3eb4a78",
+          "modality": "text",
+          "raw_score": 0.4205688536167145,
+          "fusion_score": 0.4357203687682296,
+          "page": 5,
+          "context": "1. 执行摘要与关键指标 / 4. 订单规模与能效"
+        },
+        {
+          "rank": 10,
+          "record_id": "ae4c442ba505181e212ea06e7549e7e23470d266ac58c3a2f1e7d4683e72c4a6",
+          "modality": "table",
+          "raw_score": 0.41200196743011475,
+          "fusion_score": 0.4278749833031306,
+          "page": 7,
+          "context": ""
+        }
+      ]
+    },
+    {
+      "id": "R010",
+      "question": "设备可用率在哪个月达到峰值？峰值是多少？",
+      "source_modality": "chart",
+      "locator": "图2",
+      "expected_evidence": [
+        {
+          "label": "图2",
+          "modality": "visual",
+          "page": 4
+        }
+      ],
+      "snapshot_build_id": "20260824T034351582057Z-3999474c",
+      "elapsed_ms": 1465.7571999996435,
+      "warnings": [],
+      "evidence": [
+        {
+          "label": "图2",
+          "modality": "visual",
+          "page": 4,
+          "rank": 4
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "record_id": "846f87b236db56c7e50ecc1c582ddc41b0a295ea449a24dca4ab72da0910ef6f",
+          "modality": "text",
+          "raw_score": 0.6756869554519653,
+          "fusion_score": 0.6920803980749162,
+          "page": 4,
+          "context": "1. 执行摘要与关键指标 / 3. 服务质量月度趋势"
+        },
+        {
+          "rank": 2,
+          "record_id": "538c5b7a414c24b0d4c7fd71ee705c248fad7c76239eec3d4f0d5bbf627f336b",
+          "modality": "table",
+          "raw_score": 0.5554574131965637,
+          "fusion_score": 0.5718508558195146,
+          "page": 5,
+          "context": ""
+        },
+        {
+          "rank": 3,
+          "record_id": "06ec4e03e4487f3b69e0284c4de6d455dfad8495623acb3518480c53c15aaf47",
+          "modality": "text",
+          "raw_score": 0.4934971332550049,
+          "fusion_score": 0.5096261655130694,
+          "page": 7,
+          "context": "1. 执行摘要与关键指标 / 6. 分区运营明细"
+        },
+        {
+          "rank": 4,
+          "record_id": "082299dd1b2e5bb0a7c9940e89a7042206cb202aa25e24bb2fe618a42a585286",
+          "modality": "visual",
+          "raw_score": 0.4870147407054901,
+          "fusion_score": 0.503408183328441,
+          "page": 4,
+          "context": "3. 服务质量月度趋势\n图 2 多系列折线图：准时交付率、设备可用率和冷链合规率。"
+        },
+        {
+          "rank": 5,
+          "record_id": "c4481718e7f2242b2d7c240ad955dbecd8a661c8dae44677f0e1cb86875df8c6",
+          "modality": "text",
+          "raw_score": 0.4796624481678009,
+          "fusion_score": 0.4955354640408168,
+          "page": 1,
+          "context": ""
+        },
+        {
+          "rank": 6,
+          "record_id": "25fc55f3195350f0184766238575e7e83b6f9896ba5a15b3bce8fe82f3eb4a78",
+          "modality": "text",
+          "raw_score": 0.46308740973472595,
+          "fusion_score": 0.47871240973472595,
+          "page": 5,
+          "context": "1. 执行摘要与关键指标 / 4. 订单规模与能效"
+        },
+        {
+          "rank": 7,
+          "record_id": "874b595779985418cf580c487b25488365e1f9d4155eef8c818e0e28bd80549d",
+          "modality": "text",
+          "raw_score": 0.4585988521575928,
+          "fusion_score": 0.47398346754220816,
+          "page": 10,
+          "context": "1. 执行摘要与关键指标 / 9. 结论与行动计划"
+        },
+        {
+          "rank": 8,
+          "record_id": "ae52451ee5a4f7591c73bc3f8b1f8970008730628975fd1d48bcc8c17d8d10b9",
+          "modality": "text",
+          "raw_score": 0.43086493015289307,
+          "fusion_score": 0.4460164453044082,
+          "page": 2,
+          "context": "1. 执行摘要与关键指标"
+        },
+        {
+          "rank": 9,
+          "record_id": "a404f578ca663dffc9bb81904634574f5537ca986fc050434464bcdefe1e7551",
+          "modality": "table",
+          "raw_score": 0.42161697149276733,
+          "fusion_score": 0.43774600375083184,
+          "page": 2,
+          "context": ""
+        },
+        {
+          "rank": 10,
+          "record_id": "91796b296f12e140cb8c83d4398fa3d954c19f8ad4f4d5e2cd832f3ab3d7dbfd",
+          "modality": "text",
+          "raw_score": 0.42137402296066284,
+          "fusion_score": 0.4362993960949912,
+          "page": 6,
+          "context": "1. 执行摘要与关键指标 / 5. 异常分布与停机原因"
+        }
+      ]
+    },
+    {
+      "id": "R011",
+      "question": "12 月准时交付率是多少？",
+      "source_modality": "chart",
+      "locator": "图2",
+      "expected_evidence": [
+        {
+          "label": "图2",
+          "modality": "visual",
+          "page": 4
+        }
+      ],
+      "snapshot_build_id": "20260824T034351582057Z-3999474c",
+      "elapsed_ms": 1558.0638000028557,
+      "warnings": [],
+      "evidence": [
+        {
+          "label": "图2",
+          "modality": "visual",
+          "page": 4,
+          "rank": 10
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "record_id": "846f87b236db56c7e50ecc1c582ddc41b0a295ea449a24dca4ab72da0910ef6f",
+          "modality": "text",
+          "raw_score": 0.7019282579421997,
+          "fusion_score": 0.7183217005651505,
+          "page": 4,
+          "context": "1. 执行摘要与关键指标 / 3. 服务质量月度趋势"
+        },
+        {
+          "rank": 2,
+          "record_id": "a404f578ca663dffc9bb81904634574f5537ca986fc050434464bcdefe1e7551",
+          "modality": "table",
+          "raw_score": 0.5540445446968079,
+          "fusion_score": 0.5704379873197587,
+          "page": 2,
+          "context": ""
+        },
+        {
+          "rank": 3,
+          "record_id": "538c5b7a414c24b0d4c7fd71ee705c248fad7c76239eec3d4f0d5bbf627f336b",
+          "modality": "table",
+          "raw_score": 0.5380113124847412,
+          "fusion_score": 0.5541403447428057,
+          "page": 5,
+          "context": ""
+        },
+        {
+          "rank": 4,
+          "record_id": "ae52451ee5a4f7591c73bc3f8b1f8970008730628975fd1d48bcc8c17d8d10b9",
+          "modality": "text",
+          "raw_score": 0.5246594548225403,
+          "fusion_score": 0.5407884870806048,
+          "page": 2,
+          "context": "1. 执行摘要与关键指标"
+        },
+        {
+          "rank": 5,
+          "record_id": "8c1c8417e50cbec4e5ea88aefc25bccc60c1f975660c189d51728d2f5421cb96",
+          "modality": "table",
+          "raw_score": 0.4871159791946411,
+          "fusion_score": 0.5029889950676569,
+          "page": 10,
+          "context": ""
+        },
+        {
+          "rank": 6,
+          "record_id": "06ec4e03e4487f3b69e0284c4de6d455dfad8495623acb3518480c53c15aaf47",
+          "modality": "text",
+          "raw_score": 0.48420482873916626,
+          "fusion_score": 0.5000778446121821,
+          "page": 7,
+          "context": "1. 执行摘要与关键指标 / 6. 分区运营明细"
+        },
+        {
+          "rank": 7,
+          "record_id": "c4481718e7f2242b2d7c240ad955dbecd8a661c8dae44677f0e1cb86875df8c6",
+          "modality": "text",
+          "raw_score": 0.4750484526157379,
+          "fusion_score": 0.4906734526157379,
+          "page": 1,
+          "context": ""
+        },
+        {
+          "rank": 8,
+          "record_id": "ae4c442ba505181e212ea06e7549e7e23470d266ac58c3a2f1e7d4683e72c4a6",
+          "modality": "table",
+          "raw_score": 0.4684080481529236,
+          "fusion_score": 0.4840330481529236,
+          "page": 7,
+          "context": ""
+        },
+        {
+          "rank": 9,
+          "record_id": "874b595779985418cf580c487b25488365e1f9d4155eef8c818e0e28bd80549d",
+          "modality": "text",
+          "raw_score": 0.4538782238960266,
+          "fusion_score": 0.469262839280642,
+          "page": 10,
+          "context": "1. 执行摘要与关键指标 / 9. 结论与行动计划"
+        },
+        {
+          "rank": 10,
+          "record_id": "082299dd1b2e5bb0a7c9940e89a7042206cb202aa25e24bb2fe618a42a585286",
+          "modality": "visual",
+          "raw_score": 0.4502137005329132,
+          "fusion_score": 0.46660714315586405,
+          "page": 4,
+          "context": "3. 服务质量月度趋势\n图 2 多系列折线图：准时交付率、设备可用率和冷链合规率。"
+        }
+      ]
+    },
+    {
+      "id": "R012",
+      "question": "订单量从 1 月到 12 月增加多少千单？",
+      "source_modality": "chart",
+      "locator": "图3",
+      "expected_evidence": [
+        {
+          "label": "图3",
+          "modality": "visual",
+          "page": 5
+        }
+      ],
+      "snapshot_build_id": "20260824T034351582057Z-3999474c",
+      "elapsed_ms": 1509.385299999849,
+      "warnings": [],
+      "evidence": [
+        {
+          "label": "图3",
+          "modality": "visual",
+          "page": 5,
+          "rank": 3
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "record_id": "538c5b7a414c24b0d4c7fd71ee705c248fad7c76239eec3d4f0d5bbf627f336b",
+          "modality": "table",
+          "raw_score": 0.6744430065155029,
+          "fusion_score": 0.6908364491384538,
+          "page": 5,
+          "context": ""
+        },
+        {
+          "rank": 2,
+          "record_id": "25fc55f3195350f0184766238575e7e83b6f9896ba5a15b3bce8fe82f3eb4a78",
+          "modality": "text",
+          "raw_score": 0.6147798299789429,
+          "fusion_score": 0.6311732726018937,
+          "page": 5,
+          "context": "1. 执行摘要与关键指标 / 4. 订单规模与能效"
+        },
+        {
+          "rank": 3,
+          "record_id": "e8c186d208a569803fe534379ee74974910069a740c0458b2501963e4b202c55",
+          "modality": "visual",
+          "raw_score": 0.5496063232421875,
+          "fusion_score": 0.5659997658651383,
+          "page": 5,
+          "context": "4. 订单规模与能效\n图 3 双轴组合图：订单量逐月增加，单位能耗逐月下降。"
+        },
+        {
+          "rank": 4,
+          "record_id": "846f87b236db56c7e50ecc1c582ddc41b0a295ea449a24dca4ab72da0910ef6f",
+          "modality": "text",
+          "raw_score": 0.48351940512657166,
+          "fusion_score": 0.49964843738463616,
+          "page": 4,
+          "context": "1. 执行摘要与关键指标 / 3. 服务质量月度趋势"
+        },
+        {
+          "rank": 5,
+          "record_id": "a404f578ca663dffc9bb81904634574f5537ca986fc050434464bcdefe1e7551",
+          "modality": "table",
+          "raw_score": 0.4769255518913269,
+          "fusion_score": 0.4930545841493914,
+          "page": 2,
+          "context": ""
+        },
+        {
+          "rank": 6,
+          "record_id": "06ec4e03e4487f3b69e0284c4de6d455dfad8495623acb3518480c53c15aaf47",
+          "modality": "text",
+          "raw_score": 0.46538227796554565,
+          "fusion_score": 0.4812552938385615,
+          "page": 7,
+          "context": "1. 执行摘要与关键指标 / 6. 分区运营明细"
+        },
+        {
+          "rank": 7,
+          "record_id": "ae4c442ba505181e212ea06e7549e7e23470d266ac58c3a2f1e7d4683e72c4a6",
+          "modality": "table",
+          "raw_score": 0.43972349166870117,
+          "fusion_score": 0.45559650754171704,
+          "page": 7,
+          "context": ""
+        },
+        {
+          "rank": 8,
+          "record_id": "874b595779985418cf580c487b25488365e1f9d4155eef8c818e0e28bd80549d",
+          "modality": "text",
+          "raw_score": 0.43733227252960205,
+          "fusion_score": 0.45295727252960205,
+          "page": 10,
+          "context": "1. 执行摘要与关键指标 / 9. 结论与行动计划"
+        },
+        {
+          "rank": 9,
+          "record_id": "ae52451ee5a4f7591c73bc3f8b1f8970008730628975fd1d48bcc8c17d8d10b9",
+          "modality": "text",
+          "raw_score": 0.4156646728515625,
+          "fusion_score": 0.4310492882361779,
+          "page": 2,
+          "context": "1. 执行摘要与关键指标"
+        },
+        {
+          "rank": 10,
+          "record_id": "c4481718e7f2242b2d7c240ad955dbecd8a661c8dae44677f0e1cb86875df8c6",
+          "modality": "text",
+          "raw_score": 0.41076740622520447,
+          "fusion_score": 0.4259189213767196,
+          "page": 1,
+          "context": ""
+        }
+      ]
+    },
+    {
+      "id": "R013",
+      "question": "单位能耗从 1 月到 12 月下降多少？下降比例约为多少？",
+      "source_modality": "chart",
+      "locator": "图3",
+      "expected_evidence": [
+        {
+          "label": "图3",
+          "modality": "visual",
+          "page": 5
+        }
+      ],
+      "snapshot_build_id": "20260824T034351582057Z-3999474c",
+      "elapsed_ms": 1677.1762000025774,
+      "warnings": [],
+      "evidence": [
+        {
+          "label": "图3",
+          "modality": "visual",
+          "page": 5,
+          "rank": 3
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "record_id": "538c5b7a414c24b0d4c7fd71ee705c248fad7c76239eec3d4f0d5bbf627f336b",
+          "modality": "table",
+          "raw_score": 0.7055345177650452,
+          "fusion_score": 0.721927960387996,
+          "page": 5,
+          "context": ""
+        },
+        {
+          "rank": 2,
+          "record_id": "25fc55f3195350f0184766238575e7e83b6f9896ba5a15b3bce8fe82f3eb4a78",
+          "modality": "text",
+          "raw_score": 0.633299708366394,
+          "fusion_score": 0.6496931509893449,
+          "page": 5,
+          "context": "1. 执行摘要与关键指标 / 4. 订单规模与能效"
+        },
+        {
+          "rank": 3,
+          "record_id": "e8c186d208a569803fe534379ee74974910069a740c0458b2501963e4b202c55",
+          "modality": "visual",
+          "raw_score": 0.5646669864654541,
+          "fusion_score": 0.5810604290884049,
+          "page": 5,
+          "context": "4. 订单规模与能效\n图 3 双轴组合图：订单量逐月增加，单位能耗逐月下降。"
+        },
+        {
+          "rank": 4,
+          "record_id": "c4481718e7f2242b2d7c240ad955dbecd8a661c8dae44677f0e1cb86875df8c6",
+          "modality": "text",
+          "raw_score": 0.485681414604187,
+          "fusion_score": 0.5018104468622515,
+          "page": 1,
+          "context": ""
+        },
+        {
+          "rank": 5,
+          "record_id": "a404f578ca663dffc9bb81904634574f5537ca986fc050434464bcdefe1e7551",
+          "modality": "table",
+          "raw_score": 0.4777821898460388,
+          "fusion_score": 0.4939112221041033,
+          "page": 2,
+          "context": ""
+        },
+        {
+          "rank": 6,
+          "record_id": "846f87b236db56c7e50ecc1c582ddc41b0a295ea449a24dca4ab72da0910ef6f",
+          "modality": "text",
+          "raw_score": 0.4437929391860962,
+          "fusion_score": 0.45966595505911206,
+          "page": 4,
+          "context": "1. 执行摘要与关键指标 / 3. 服务质量月度趋势"
+        },
+        {
+          "rank": 7,
+          "record_id": "ae52451ee5a4f7591c73bc3f8b1f8970008730628975fd1d48bcc8c17d8d10b9",
+          "modality": "text",
+          "raw_score": 0.42270296812057495,
+          "fusion_score": 0.43832796812057495,
+          "page": 2,
+          "context": "1. 执行摘要与关键指标"
+        },
+        {
+          "rank": 8,
+          "record_id": "874b595779985418cf580c487b25488365e1f9d4155eef8c818e0e28bd80549d",
+          "modality": "text",
+          "raw_score": 0.4153890013694763,
+          "fusion_score": 0.4307736167540917,
+          "page": 10,
+          "context": "1. 执行摘要与关键指标 / 9. 结论与行动计划"
+        }
+      ]
+    },
+    {
+      "id": "R014",
+      "question": "折线图中哪个月首次达到低于 6.5 kWh/单的目标？",
+      "source_modality": "chart",
+      "locator": "图3",
+      "expected_evidence": [
+        {
+          "label": "图3",
+          "modality": "visual",
+          "page": 5
+        }
+      ],
+      "snapshot_build_id": "20260824T034351582057Z-3999474c",
+      "elapsed_ms": 1491.833800002496,
+      "warnings": [],
+      "evidence": [
+        {
+          "label": "图3",
+          "modality": "visual",
+          "page": 5,
+          "rank": 5
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "record_id": "538c5b7a414c24b0d4c7fd71ee705c248fad7c76239eec3d4f0d5bbf627f336b",
+          "modality": "table",
+          "raw_score": 0.7186870574951172,
+          "fusion_score": 0.735080500118068,
+          "page": 5,
+          "context": ""
+        },
+        {
+          "rank": 2,
+          "record_id": "846f87b236db56c7e50ecc1c582ddc41b0a295ea449a24dca4ab72da0910ef6f",
+          "modality": "text",
+          "raw_score": 0.560107946395874,
+          "fusion_score": 0.5765013890188249,
+          "page": 4,
+          "context": "1. 执行摘要与关键指标 / 3. 服务质量月度趋势"
+        },
+        {
+          "rank": 3,
+          "record_id": "25fc55f3195350f0184766238575e7e83b6f9896ba5a15b3bce8fe82f3eb4a78",
+          "modality": "text",
+          "raw_score": 0.5513298511505127,
+          "fusion_score": 0.5674588834085772,
+          "page": 5,
+          "context": "1. 执行摘要与关键指标 / 4. 订单规模与能效"
+        },
+        {
+          "rank": 4,
+          "record_id": "a404f578ca663dffc9bb81904634574f5537ca986fc050434464bcdefe1e7551",
+          "modality": "table",
+          "raw_score": 0.5461094379425049,
+          "fusion_score": 0.5622384702005694,
+          "page": 2,
+          "context": ""
+        },
+        {
+          "rank": 5,
+          "record_id": "e8c186d208a569803fe534379ee74974910069a740c0458b2501963e4b202c55",
+          "modality": "visual",
+          "raw_score": 0.4859697222709656,
+          "fusion_score": 0.5023631648939164,
+          "page": 5,
+          "context": "4. 订单规模与能效\n图 3 双轴组合图：订单量逐月增加，单位能耗逐月下降。"
+        },
+        {
+          "rank": 6,
+          "record_id": "c4481718e7f2242b2d7c240ad955dbecd8a661c8dae44677f0e1cb86875df8c6",
+          "modality": "text",
+          "raw_score": 0.48140090703964233,
+          "fusion_score": 0.4972739229126582,
+          "page": 1,
+          "context": ""
+        },
+        {
+          "rank": 7,
+          "record_id": "ae52451ee5a4f7591c73bc3f8b1f8970008730628975fd1d48bcc8c17d8d10b9",
+          "modality": "text",
+          "raw_score": 0.4743432104587555,
+          "fusion_score": 0.4899682104587555,
+          "page": 2,
+          "context": "1. 执行摘要与关键指标"
+        },
+        {
+          "rank": 8,
+          "record_id": "874b595779985418cf580c487b25488365e1f9d4155eef8c818e0e28bd80549d",
+          "modality": "text",
+          "raw_score": 0.4522634744644165,
+          "fusion_score": 0.4676480898490319,
+          "page": 10,
+          "context": "1. 执行摘要与关键指标 / 9. 结论与行动计划"
+        },
+        {
+          "rank": 9,
+          "record_id": "8889d2c695cc5b45063103b0c066e0ff8afb8af179a026d5f41ee3d857c5adc7",
+          "modality": "text",
+          "raw_score": 0.43171828985214233,
+          "fusion_score": 0.44686980500365747,
+          "page": 8,
+          "context": "1. 执行摘要与关键指标 / 7. 温控热力与空间布局"
+        },
+        {
+          "rank": 10,
+          "record_id": "082299dd1b2e5bb0a7c9940e89a7042206cb202aa25e24bb2fe618a42a585286",
+          "modality": "visual",
+          "raw_score": 0.4266524016857147,
+          "fusion_score": 0.4427814339437792,
+          "page": 4,
+          "context": "3. 服务质量月度趋势\n图 2 多系列折线图：准时交付率、设备可用率和冷链合规率。"
+        }
+      ]
+    },
+    {
+      "id": "R015",
+      "question": "哪个区域异常总数最多？各类分别多少？",
+      "source_modality": "chart",
+      "locator": "图4",
+      "expected_evidence": [
+        {
+          "label": "图4",
+          "modality": "visual",
+          "page": 6,
+          "record_ids": [
+            "7638b4132f26edb4015008383b05d4cd788e87727b116088054d810597438bf0"
+          ]
+        }
+      ],
+      "snapshot_build_id": "20260824T034351582057Z-3999474c",
+      "elapsed_ms": 1407.9691000006278,
+      "warnings": [],
+      "evidence": [
+        {
+          "label": "图4",
+          "modality": "visual",
+          "page": 6,
+          "record_ids": [
+            "7638b4132f26edb4015008383b05d4cd788e87727b116088054d810597438bf0"
+          ],
+          "rank": 5
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "record_id": "06ec4e03e4487f3b69e0284c4de6d455dfad8495623acb3518480c53c15aaf47",
+          "modality": "text",
+          "raw_score": 0.6479860544204712,
+          "fusion_score": 0.664379497043422,
+          "page": 7,
+          "context": "1. 执行摘要与关键指标 / 6. 分区运营明细"
+        },
+        {
+          "rank": 2,
+          "record_id": "ae4c442ba505181e212ea06e7549e7e23470d266ac58c3a2f1e7d4683e72c4a6",
+          "modality": "table",
+          "raw_score": 0.6236739158630371,
+          "fusion_score": 0.640067358485988,
+          "page": 7,
+          "context": ""
+        },
+        {
+          "rank": 3,
+          "record_id": "91796b296f12e140cb8c83d4398fa3d954c19f8ad4f4d5e2cd832f3ab3d7dbfd",
+          "modality": "text",
+          "raw_score": 0.5799516439437866,
+          "fusion_score": 0.5960806762018511,
+          "page": 6,
+          "context": "1. 执行摘要与关键指标 / 5. 异常分布与停机原因"
+        },
+        {
+          "rank": 4,
+          "record_id": "c4481718e7f2242b2d7c240ad955dbecd8a661c8dae44677f0e1cb86875df8c6",
+          "modality": "text",
+          "raw_score": 0.5212260484695435,
+          "fusion_score": 0.5370990643425593,
+          "page": 1,
+          "context": ""
+        },
+        {
+          "rank": 5,
+          "record_id": "7638b4132f26edb4015008383b05d4cd788e87727b116088054d810597438bf0",
+          "modality": "visual",
+          "raw_score": 0.5066209435462952,
+          "fusion_score": 0.523014386169246,
+          "page": 6,
+          "context": "5. 异常分布与停机原因\n图 4 各作业区异常类型构成。"
+        },
+        {
+          "rank": 6,
+          "record_id": "8889d2c695cc5b45063103b0c066e0ff8afb8af179a026d5f41ee3d857c5adc7",
+          "modality": "text",
+          "raw_score": 0.44726336002349854,
+          "fusion_score": 0.46288836002349854,
+          "page": 8,
+          "context": "1. 执行摘要与关键指标 / 7. 温控热力与空间布局"
+        },
+        {
+          "rank": 7,
+          "record_id": "874b595779985418cf580c487b25488365e1f9d4155eef8c818e0e28bd80549d",
+          "modality": "text",
+          "raw_score": 0.4114518165588379,
+          "fusion_score": 0.4268364319434533,
+          "page": 10,
+          "context": "1. 执行摘要与关键指标 / 9. 结论与行动计划"
+        },
+        {
+          "rank": 8,
+          "record_id": "ba74c89a1dddfee2e79167fa06f14425c8318ef4797b960aeb3bfdf495daffe6",
+          "modality": "table",
+          "raw_score": 0.40475940704345703,
+          "fusion_score": 0.42088843930152153,
+          "page": 9,
+          "context": ""
+        }
+      ]
+    },
+    {
+      "id": "R016",
+      "question": "A 区和 D 区的异常总数相差多少？",
+      "source_modality": "chart",
+      "locator": "图4",
+      "expected_evidence": [
+        {
+          "label": "图4",
+          "modality": "visual",
+          "page": 6,
+          "record_ids": [
+            "7638b4132f26edb4015008383b05d4cd788e87727b116088054d810597438bf0"
+          ]
+        }
+      ],
+      "snapshot_build_id": "20260824T034351582057Z-3999474c",
+      "elapsed_ms": 1425.1814000017475,
+      "warnings": [],
+      "evidence": [
+        {
+          "label": "图4",
+          "modality": "visual",
+          "page": 6,
+          "record_ids": [
+            "7638b4132f26edb4015008383b05d4cd788e87727b116088054d810597438bf0"
+          ],
+          "rank": 4
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "record_id": "ae4c442ba505181e212ea06e7549e7e23470d266ac58c3a2f1e7d4683e72c4a6",
+          "modality": "table",
+          "raw_score": 0.6796295642852783,
+          "fusion_score": 0.6960230069082292,
+          "page": 7,
+          "context": ""
+        },
+        {
+          "rank": 2,
+          "record_id": "06ec4e03e4487f3b69e0284c4de6d455dfad8495623acb3518480c53c15aaf47",
+          "modality": "text",
+          "raw_score": 0.6534092426300049,
+          "fusion_score": 0.6698026852529557,
+          "page": 7,
+          "context": "1. 执行摘要与关键指标 / 6. 分区运营明细"
+        },
+        {
+          "rank": 3,
+          "record_id": "91796b296f12e140cb8c83d4398fa3d954c19f8ad4f4d5e2cd832f3ab3d7dbfd",
+          "modality": "text",
+          "raw_score": 0.5541566014289856,
+          "fusion_score": 0.5702856336870501,
+          "page": 6,
+          "context": "1. 执行摘要与关键指标 / 5. 异常分布与停机原因"
+        },
+        {
+          "rank": 4,
+          "record_id": "7638b4132f26edb4015008383b05d4cd788e87727b116088054d810597438bf0",
+          "modality": "visual",
+          "raw_score": 0.5430504083633423,
+          "fusion_score": 0.5594438509862931,
+          "page": 6,
+          "context": "5. 异常分布与停机原因\n图 4 各作业区异常类型构成。"
+        },
+        {
+          "rank": 5,
+          "record_id": "c4481718e7f2242b2d7c240ad955dbecd8a661c8dae44677f0e1cb86875df8c6",
+          "modality": "text",
+          "raw_score": 0.49051058292388916,
+          "fusion_score": 0.506383598796905,
+          "page": 1,
+          "context": ""
+        },
+        {
+          "rank": 6,
+          "record_id": "8889d2c695cc5b45063103b0c066e0ff8afb8af179a026d5f41ee3d857c5adc7",
+          "modality": "text",
+          "raw_score": 0.43371468782424927,
+          "fusion_score": 0.44933968782424927,
+          "page": 8,
+          "context": "1. 执行摘要与关键指标 / 7. 温控热力与空间布局"
+        },
+        {
+          "rank": 7,
+          "record_id": "874b595779985418cf580c487b25488365e1f9d4155eef8c818e0e28bd80549d",
+          "modality": "text",
+          "raw_score": 0.4270927906036377,
+          "fusion_score": 0.4424774059882531,
+          "page": 10,
+          "context": "1. 执行摘要与关键指标 / 9. 结论与行动计划"
+        }
+      ]
+    },
+    {
+      "id": "R017",
+      "question": "停机原因占比最高的是什么？对应多少小时？",
+      "source_modality": "chart",
+      "locator": "图5",
+      "expected_evidence": [
+        {
+          "label": "图5",
+          "modality": "visual",
+          "page": 6,
+          "record_ids": [
+            "dc07e2d54cfc389904698f4d8458ec56a1fe8197090a196324429a1acc439041"
+          ]
+        }
+      ],
+      "snapshot_build_id": "20260824T034351582057Z-3999474c",
+      "elapsed_ms": 1398.9583000002312,
+      "warnings": [],
+      "evidence": [
+        {
+          "label": "图5",
+          "modality": "visual",
+          "page": 6,
+          "record_ids": [
+            "dc07e2d54cfc389904698f4d8458ec56a1fe8197090a196324429a1acc439041"
+          ],
+          "rank": 2
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "record_id": "91796b296f12e140cb8c83d4398fa3d954c19f8ad4f4d5e2cd832f3ab3d7dbfd",
+          "modality": "text",
+          "raw_score": 0.7112447619438171,
+          "fusion_score": 0.727638204566768,
+          "page": 6,
+          "context": "1. 执行摘要与关键指标 / 5. 异常分布与停机原因"
+        },
+        {
+          "rank": 2,
+          "record_id": "dc07e2d54cfc389904698f4d8458ec56a1fe8197090a196324429a1acc439041",
+          "modality": "visual",
+          "raw_score": 0.5985680818557739,
+          "fusion_score": 0.6149615244787248,
+          "page": 6,
+          "context": "图 4 各作业区异常类型构成。\n图 5 全年 400 小时停机的原因占比。"
+        },
+        {
+          "rank": 3,
+          "record_id": "ba74c89a1dddfee2e79167fa06f14425c8318ef4797b960aeb3bfdf495daffe6",
+          "modality": "table",
+          "raw_score": 0.5811222195625305,
+          "fusion_score": 0.5975156621854814,
+          "page": 9,
+          "context": ""
+        },
+        {
+          "rank": 4,
+          "record_id": "c4481718e7f2242b2d7c240ad955dbecd8a661c8dae44677f0e1cb86875df8c6",
+          "modality": "text",
+          "raw_score": 0.4864806830883026,
+          "fusion_score": 0.5026097153463671,
+          "page": 1,
+          "context": ""
+        },
+        {
+          "rank": 5,
+          "record_id": "06ec4e03e4487f3b69e0284c4de6d455dfad8495623acb3518480c53c15aaf47",
+          "modality": "text",
+          "raw_score": 0.4566199779510498,
+          "fusion_score": 0.4724929938240657,
+          "page": 7,
+          "context": "1. 执行摘要与关键指标 / 6. 分区运营明细"
+        },
+        {
+          "rank": 6,
+          "record_id": "8c1c8417e50cbec4e5ea88aefc25bccc60c1f975660c189d51728d2f5421cb96",
+          "modality": "table",
+          "raw_score": 0.43700653314590454,
+          "fusion_score": 0.45313556540396904,
+          "page": 10,
+          "context": ""
+        },
+        {
+          "rank": 7,
+          "record_id": "846f87b236db56c7e50ecc1c582ddc41b0a295ea449a24dca4ab72da0910ef6f",
+          "modality": "text",
+          "raw_score": 0.43615448474884033,
+          "fusion_score": 0.45177948474884033,
+          "page": 4,
+          "context": "1. 执行摘要与关键指标 / 3. 服务质量月度趋势"
+        },
+        {
+          "rank": 8,
+          "record_id": "538c5b7a414c24b0d4c7fd71ee705c248fad7c76239eec3d4f0d5bbf627f336b",
+          "modality": "table",
+          "raw_score": 0.43294012546539307,
+          "fusion_score": 0.44881314133840894,
+          "page": 5,
+          "context": ""
+        },
+        {
+          "rank": 9,
+          "record_id": "ae52451ee5a4f7591c73bc3f8b1f8970008730628975fd1d48bcc8c17d8d10b9",
+          "modality": "text",
+          "raw_score": 0.408577024936676,
+          "fusion_score": 0.4239616403212914,
+          "page": 2,
+          "context": "1. 执行摘要与关键指标"
+        },
+        {
+          "rank": 10,
+          "record_id": "a404f578ca663dffc9bb81904634574f5537ca986fc050434464bcdefe1e7551",
+          "modality": "table",
+          "raw_score": 0.4061993360519409,
+          "fusion_score": 0.4218243360519409,
+          "page": 2,
+          "context": ""
+        }
+      ]
+    },
+    {
+      "id": "R018",
+      "question": "软件异常和网络中断合计占比多少？",
+      "source_modality": "chart",
+      "locator": "图5",
+      "expected_evidence": [
+        {
+          "label": "图5",
+          "modality": "visual",
+          "page": 6,
+          "record_ids": [
+            "dc07e2d54cfc389904698f4d8458ec56a1fe8197090a196324429a1acc439041"
+          ]
+        }
+      ],
+      "snapshot_build_id": "20260824T034351582057Z-3999474c",
+      "elapsed_ms": 1384.7961999999825,
+      "warnings": [],
+      "evidence": [
+        {
+          "label": "图5",
+          "modality": "visual",
+          "page": 6,
+          "record_ids": [
+            "dc07e2d54cfc389904698f4d8458ec56a1fe8197090a196324429a1acc439041"
+          ],
+          "rank": 5
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "record_id": "91796b296f12e140cb8c83d4398fa3d954c19f8ad4f4d5e2cd832f3ab3d7dbfd",
+          "modality": "text",
+          "raw_score": 0.6099346280097961,
+          "fusion_score": 0.626328070632747,
+          "page": 6,
+          "context": "1. 执行摘要与关键指标 / 5. 异常分布与停机原因"
+        },
+        {
+          "rank": 2,
+          "record_id": "ba74c89a1dddfee2e79167fa06f14425c8318ef4797b960aeb3bfdf495daffe6",
+          "modality": "table",
+          "raw_score": 0.5692626237869263,
+          "fusion_score": 0.5856560664098771,
+          "page": 9,
+          "context": ""
+        },
+        {
+          "rank": 3,
+          "record_id": "c4481718e7f2242b2d7c240ad955dbecd8a661c8dae44677f0e1cb86875df8c6",
+          "modality": "text",
+          "raw_score": 0.4931677579879761,
+          "fusion_score": 0.5092967902460406,
+          "page": 1,
+          "context": ""
+        },
+        {
+          "rank": 4,
+          "record_id": "06ec4e03e4487f3b69e0284c4de6d455dfad8495623acb3518480c53c15aaf47",
+          "modality": "text",
+          "raw_score": 0.4909207224845886,
+          "fusion_score": 0.5067937383576044,
+          "page": 7,
+          "context": "1. 执行摘要与关键指标 / 6. 分区运营明细"
+        },
+        {
+          "rank": 5,
+          "record_id": "dc07e2d54cfc389904698f4d8458ec56a1fe8197090a196324429a1acc439041",
+          "modality": "visual",
+          "raw_score": 0.4697624444961548,
+          "fusion_score": 0.4861558871191056,
+          "page": 6,
+          "context": "图 4 各作业区异常类型构成。\n图 5 全年 400 小时停机的原因占比。"
+        },
+        {
+          "rank": 6,
+          "record_id": "846f87b236db56c7e50ecc1c582ddc41b0a295ea449a24dca4ab72da0910ef6f",
+          "modality": "text",
+          "raw_score": 0.4419529438018799,
+          "fusion_score": 0.4575779438018799,
+          "page": 4,
+          "context": "1. 执行摘要与关键指标 / 3. 服务质量月度趋势"
+        },
+        {
+          "rank": 7,
+          "record_id": "ae4c442ba505181e212ea06e7549e7e23470d266ac58c3a2f1e7d4683e72c4a6",
+          "modality": "table",
+          "raw_score": 0.42717474699020386,
+          "fusion_score": 0.44330377924826836,
+          "page": 7,
+          "context": ""
+        },
+        {
+          "rank": 8,
+          "record_id": "ba83fd4b2aef76a97923258617a382f7bd58bda45ad643d32038b8e5e42eba9d",
+          "modality": "text",
+          "raw_score": 0.40802738070487976,
+          "fusion_score": 0.42341199608949515,
+          "page": 9,
+          "context": "1. 执行摘要与关键指标 / 8. 应急响应流程与风险矩阵"
+        },
+        {
+          "rank": 9,
+          "record_id": "8c1c8417e50cbec4e5ea88aefc25bccc60c1f975660c189d51728d2f5421cb96",
+          "modality": "table",
+          "raw_score": 0.4004059135913849,
+          "fusion_score": 0.41627892946440076,
+          "page": 10,
+          "context": ""
+        }
+      ]
+    },
+    {
+      "id": "R019",
+      "question": "C 区的功能、平均温度、异常数和负责人是什么？",
+      "source_modality": "table",
+      "locator": "表2",
+      "expected_evidence": [
+        {
+          "label": "表2",
+          "modality": "table",
+          "page": 7
+        }
+      ],
+      "snapshot_build_id": "20260824T034351582057Z-3999474c",
+      "elapsed_ms": 1660.3393999976106,
+      "warnings": [],
+      "evidence": [
+        {
+          "label": "表2",
+          "modality": "table",
+          "page": 7,
+          "rank": 1
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "record_id": "ae4c442ba505181e212ea06e7549e7e23470d266ac58c3a2f1e7d4683e72c4a6",
+          "modality": "table",
+          "raw_score": 0.7398152351379395,
+          "fusion_score": 0.7562086777608903,
+          "page": 7,
+          "context": ""
+        },
+        {
+          "rank": 2,
+          "record_id": "06ec4e03e4487f3b69e0284c4de6d455dfad8495623acb3518480c53c15aaf47",
+          "modality": "text",
+          "raw_score": 0.7057802677154541,
+          "fusion_score": 0.7221737103384049,
+          "page": 7,
+          "context": "1. 执行摘要与关键指标 / 6. 分区运营明细"
+        },
+        {
+          "rank": 3,
+          "record_id": "c4481718e7f2242b2d7c240ad955dbecd8a661c8dae44677f0e1cb86875df8c6",
+          "modality": "text",
+          "raw_score": 0.551665186882019,
+          "fusion_score": 0.5677942191400835,
+          "page": 1,
+          "context": ""
+        },
+        {
+          "rank": 4,
+          "record_id": "874b595779985418cf580c487b25488365e1f9d4155eef8c818e0e28bd80549d",
+          "modality": "text",
+          "raw_score": 0.5466512441635132,
+          "fusion_score": 0.562524260036529,
+          "page": 10,
+          "context": "1. 执行摘要与关键指标 / 9. 结论与行动计划"
+        },
+        {
+          "rank": 5,
+          "record_id": "8c1c8417e50cbec4e5ea88aefc25bccc60c1f975660c189d51728d2f5421cb96",
+          "modality": "table",
+          "raw_score": 0.5337168574333191,
+          "fusion_score": 0.5498458896913836,
+          "page": 10,
+          "context": ""
+        },
+        {
+          "rank": 6,
+          "record_id": "8889d2c695cc5b45063103b0c066e0ff8afb8af179a026d5f41ee3d857c5adc7",
+          "modality": "text",
+          "raw_score": 0.499168336391449,
+          "fusion_score": 0.514793336391449,
+          "page": 8,
+          "context": "1. 执行摘要与关键指标 / 7. 温控热力与空间布局"
+        },
+        {
+          "rank": 7,
+          "record_id": "ae52451ee5a4f7591c73bc3f8b1f8970008730628975fd1d48bcc8c17d8d10b9",
+          "modality": "text",
+          "raw_score": 0.49859070777893066,
+          "fusion_score": 0.513975323163546,
+          "page": 2,
+          "context": "1. 执行摘要与关键指标"
+        },
+        {
+          "rank": 8,
+          "record_id": "7638b4132f26edb4015008383b05d4cd788e87727b116088054d810597438bf0",
+          "modality": "visual",
+          "raw_score": 0.4767533242702484,
+          "fusion_score": 0.49314676689319925,
+          "page": 6,
+          "context": "5. 异常分布与停机原因\n图 4 各作业区异常类型构成。"
+        },
+        {
+          "rank": 9,
+          "record_id": "ba74c89a1dddfee2e79167fa06f14425c8318ef4797b960aeb3bfdf495daffe6",
+          "modality": "table",
+          "raw_score": 0.4586755037307739,
+          "fusion_score": 0.4745485196037898,
+          "page": 9,
+          "context": ""
+        },
+        {
+          "rank": 10,
+          "record_id": "ac68fbd56efbcc7ec20525ec54a0314022a680358241632f813fdd66bdeb0219",
+          "modality": "text",
+          "raw_score": 0.4547341465950012,
+          "fusion_score": 0.46988566174651636,
+          "page": 3,
+          "context": "1. 执行摘要与关键指标 / 2. 现场视觉巡检"
+        }
+      ]
+    },
+    {
+      "id": "R020",
+      "question": "哪个区域准时率最高？是多少？",
+      "source_modality": "table",
+      "locator": "表2",
+      "expected_evidence": [
+        {
+          "label": "表2",
+          "modality": "table",
+          "page": 7
+        }
+      ],
+      "snapshot_build_id": "20260824T034351582057Z-3999474c",
+      "elapsed_ms": 1517.914900003234,
+      "warnings": [],
+      "evidence": [
+        {
+          "label": "表2",
+          "modality": "table",
+          "page": 7,
+          "rank": 3
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "record_id": "06ec4e03e4487f3b69e0284c4de6d455dfad8495623acb3518480c53c15aaf47",
+          "modality": "text",
+          "raw_score": 0.6150724291801453,
+          "fusion_score": 0.6314658718030961,
+          "page": 7,
+          "context": "1. 执行摘要与关键指标 / 6. 分区运营明细"
+        },
+        {
+          "rank": 2,
+          "record_id": "846f87b236db56c7e50ecc1c582ddc41b0a295ea449a24dca4ab72da0910ef6f",
+          "modality": "text",
+          "raw_score": 0.5978190898895264,
+          "fusion_score": 0.6139481221475909,
+          "page": 4,
+          "context": "1. 执行摘要与关键指标 / 3. 服务质量月度趋势"
+        },
+        {
+          "rank": 3,
+          "record_id": "ae4c442ba505181e212ea06e7549e7e23470d266ac58c3a2f1e7d4683e72c4a6",
+          "modality": "table",
+          "raw_score": 0.5917019248008728,
+          "fusion_score": 0.6080953674238236,
+          "page": 7,
+          "context": ""
+        },
+        {
+          "rank": 4,
+          "record_id": "ae52451ee5a4f7591c73bc3f8b1f8970008730628975fd1d48bcc8c17d8d10b9",
+          "modality": "text",
+          "raw_score": 0.4851542115211487,
+          "fusion_score": 0.5010272273941645,
+          "page": 2,
+          "context": "1. 执行摘要与关键指标"
+        },
+        {
+          "rank": 5,
+          "record_id": "a404f578ca663dffc9bb81904634574f5537ca986fc050434464bcdefe1e7551",
+          "modality": "table",
+          "raw_score": 0.4814260005950928,
+          "fusion_score": 0.4975550328531573,
+          "page": 2,
+          "context": ""
+        },
+        {
+          "rank": 6,
+          "record_id": "c4481718e7f2242b2d7c240ad955dbecd8a661c8dae44677f0e1cb86875df8c6",
+          "modality": "text",
+          "raw_score": 0.47654175758361816,
+          "fusion_score": 0.49216675758361816,
+          "page": 1,
+          "context": ""
+        },
+        {
+          "rank": 7,
+          "record_id": "8c1c8417e50cbec4e5ea88aefc25bccc60c1f975660c189d51728d2f5421cb96",
+          "modality": "table",
+          "raw_score": 0.4440559446811676,
+          "fusion_score": 0.4599289605541835,
+          "page": 10,
+          "context": ""
+        },
+        {
+          "rank": 8,
+          "record_id": "91796b296f12e140cb8c83d4398fa3d954c19f8ad4f4d5e2cd832f3ab3d7dbfd",
+          "modality": "text",
+          "raw_score": 0.44233769178390503,
+          "fusion_score": 0.4577223071685204,
+          "page": 6,
+          "context": "1. 执行摘要与关键指标 / 5. 异常分布与停机原因"
+        },
+        {
+          "rank": 9,
+          "record_id": "874b595779985418cf580c487b25488365e1f9d4155eef8c818e0e28bd80549d",
+          "modality": "text",
+          "raw_score": 0.4312325716018677,
+          "fusion_score": 0.4463840867533828,
+          "page": 10,
+          "context": "1. 执行摘要与关键指标 / 9. 结论与行动计划"
+        },
+        {
+          "rank": 10,
+          "record_id": "8889d2c695cc5b45063103b0c066e0ff8afb8af179a026d5f41ee3d857c5adc7",
+          "modality": "text",
+          "raw_score": 0.41714322566986084,
+          "fusion_score": 0.4320685988041892,
+          "page": 8,
+          "context": "1. 执行摘要与关键指标 / 7. 温控热力与空间布局"
+        }
+      ]
+    },
+    {
+      "id": "R021",
+      "question": "六个区域订单量合计多少？",
+      "source_modality": "table_calculation",
+      "locator": "表2",
+      "expected_evidence": [
+        {
+          "label": "表2",
+          "modality": "table",
+          "page": 7
+        }
+      ],
+      "snapshot_build_id": "20260824T034351582057Z-3999474c",
+      "elapsed_ms": 1436.7437000000791,
+      "warnings": [],
+      "evidence": [
+        {
+          "label": "表2",
+          "modality": "table",
+          "page": 7,
+          "rank": 1
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "record_id": "ae4c442ba505181e212ea06e7549e7e23470d266ac58c3a2f1e7d4683e72c4a6",
+          "modality": "table",
+          "raw_score": 0.6442504525184631,
+          "fusion_score": 0.660643895141414,
+          "page": 7,
+          "context": ""
+        },
+        {
+          "rank": 2,
+          "record_id": "06ec4e03e4487f3b69e0284c4de6d455dfad8495623acb3518480c53c15aaf47",
+          "modality": "text",
+          "raw_score": 0.6324405074119568,
+          "fusion_score": 0.6488339500349076,
+          "page": 7,
+          "context": "1. 执行摘要与关键指标 / 6. 分区运营明细"
+        },
+        {
+          "rank": 3,
+          "record_id": "538c5b7a414c24b0d4c7fd71ee705c248fad7c76239eec3d4f0d5bbf627f336b",
+          "modality": "table",
+          "raw_score": 0.477173775434494,
+          "fusion_score": 0.4933028076925585,
+          "page": 5,
+          "context": ""
+        },
+        {
+          "rank": 4,
+          "record_id": "8889d2c695cc5b45063103b0c066e0ff8afb8af179a026d5f41ee3d857c5adc7",
+          "modality": "text",
+          "raw_score": 0.4578626751899719,
+          "fusion_score": 0.4739917074480364,
+          "page": 8,
+          "context": "1. 执行摘要与关键指标 / 7. 温控热力与空间布局"
+        },
+        {
+          "rank": 5,
+          "record_id": "25fc55f3195350f0184766238575e7e83b6f9896ba5a15b3bce8fe82f3eb4a78",
+          "modality": "text",
+          "raw_score": 0.4577733874320984,
+          "fusion_score": 0.47364640330511426,
+          "page": 5,
+          "context": "1. 执行摘要与关键指标 / 4. 订单规模与能效"
+        },
+        {
+          "rank": 6,
+          "record_id": "874b595779985418cf580c487b25488365e1f9d4155eef8c818e0e28bd80549d",
+          "modality": "text",
+          "raw_score": 0.45218557119369507,
+          "fusion_score": 0.46781057119369507,
+          "page": 10,
+          "context": "1. 执行摘要与关键指标 / 9. 结论与行动计划"
+        },
+        {
+          "rank": 7,
+          "record_id": "c4481718e7f2242b2d7c240ad955dbecd8a661c8dae44677f0e1cb86875df8c6",
+          "modality": "text",
+          "raw_score": 0.4388328194618225,
+          "fusion_score": 0.4542174348464379,
+          "page": 1,
+          "context": ""
+        },
+        {
+          "rank": 8,
+          "record_id": "8c1c8417e50cbec4e5ea88aefc25bccc60c1f975660c189d51728d2f5421cb96",
+          "modality": "table",
+          "raw_score": 0.4361104965209961,
+          "fusion_score": 0.45198351239401197,
+          "page": 10,
+          "context": ""
+        },
+        {
+          "rank": 9,
+          "record_id": "a404f578ca663dffc9bb81904634574f5537ca986fc050434464bcdefe1e7551",
+          "modality": "table",
+          "raw_score": 0.42217063903808594,
+          "fusion_score": 0.43779563903808594,
+          "page": 2,
+          "context": ""
+        },
+        {
+          "rank": 10,
+          "record_id": "ae52451ee5a4f7591c73bc3f8b1f8970008730628975fd1d48bcc8c17d8d10b9",
+          "modality": "text",
+          "raw_score": 0.41273975372314453,
+          "fusion_score": 0.42789126887465967,
+          "page": 2,
+          "context": "1. 执行摘要与关键指标"
+        }
+      ]
+    },
+    {
+      "id": "R022",
+      "question": "热力图中最高温热点位于哪个传感器？温度是多少？",
+      "source_modality": "heatmap",
+      "locator": "图6",
+      "expected_evidence": [
+        {
+          "label": "图6",
+          "modality": "visual",
+          "page": 8,
+          "record_ids": [
+            "0c71013b62d745806e315f85702abd420cd6475dad4fc109218b26d9af8d79cc"
+          ]
+        }
+      ],
+      "snapshot_build_id": "20260824T034351582057Z-3999474c",
+      "elapsed_ms": 1547.036099997058,
+      "warnings": [],
+      "evidence": [
+        {
+          "label": "图6",
+          "modality": "visual",
+          "page": 8,
+          "record_ids": [
+            "0c71013b62d745806e315f85702abd420cd6475dad4fc109218b26d9af8d79cc"
+          ],
+          "rank": 2
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "record_id": "8889d2c695cc5b45063103b0c066e0ff8afb8af179a026d5f41ee3d857c5adc7",
+          "modality": "text",
+          "raw_score": 0.7043140530586243,
+          "fusion_score": 0.7207074956815751,
+          "page": 8,
+          "context": "1. 执行摘要与关键指标 / 7. 温控热力与空间布局"
+        },
+        {
+          "rank": 2,
+          "record_id": "0c71013b62d745806e315f85702abd420cd6475dad4fc109218b26d9af8d79cc",
+          "modality": "visual",
+          "raw_score": 0.5492022037506104,
+          "fusion_score": 0.5655956463735612,
+          "page": 8,
+          "context": "7. 温控热力与空间布局\n图 6 传感器热力图；E5 为最高温热点 -14.2°C，超过安全阈值。"
+        },
+        {
+          "rank": 3,
+          "record_id": "c4481718e7f2242b2d7c240ad955dbecd8a661c8dae44677f0e1cb86875df8c6",
+          "modality": "text",
+          "raw_score": 0.5073795318603516,
+          "fusion_score": 0.5235085641184161,
+          "page": 1,
+          "context": ""
+        },
+        {
+          "rank": 4,
+          "record_id": "ac68fbd56efbcc7ec20525ec54a0314022a680358241632f813fdd66bdeb0219",
+          "modality": "text",
+          "raw_score": 0.5045663714408875,
+          "fusion_score": 0.5204393873139033,
+          "page": 3,
+          "context": "1. 执行摘要与关键指标 / 2. 现场视觉巡检"
+        },
+        {
+          "rank": 5,
+          "record_id": "ae4c442ba505181e212ea06e7549e7e23470d266ac58c3a2f1e7d4683e72c4a6",
+          "modality": "table",
+          "raw_score": 0.4927862584590912,
+          "fusion_score": 0.509179701082042,
+          "page": 7,
+          "context": ""
+        },
+        {
+          "rank": 6,
+          "record_id": "06ec4e03e4487f3b69e0284c4de6d455dfad8495623acb3518480c53c15aaf47",
+          "modality": "text",
+          "raw_score": 0.49031803011894226,
+          "fusion_score": 0.5059430301189423,
+          "page": 7,
+          "context": "1. 执行摘要与关键指标 / 6. 分区运营明细"
+        },
+        {
+          "rank": 7,
+          "record_id": "874b595779985418cf580c487b25488365e1f9d4155eef8c818e0e28bd80549d",
+          "modality": "text",
+          "raw_score": 0.4327254891395569,
+          "fusion_score": 0.44811010452417227,
+          "page": 10,
+          "context": "1. 执行摘要与关键指标 / 9. 结论与行动计划"
+        },
+        {
+          "rank": 8,
+          "record_id": "ba74c89a1dddfee2e79167fa06f14425c8318ef4797b960aeb3bfdf495daffe6",
+          "modality": "table",
+          "raw_score": 0.4042060673236847,
+          "fusion_score": 0.4203350995817492,
+          "page": 9,
+          "context": ""
+        },
+        {
+          "rank": 9,
+          "record_id": "ae52451ee5a4f7591c73bc3f8b1f8970008730628975fd1d48bcc8c17d8d10b9",
+          "modality": "text",
+          "raw_score": 0.40109312534332275,
+          "fusion_score": 0.4162446404948379,
+          "page": 2,
+          "context": "1. 执行摘要与关键指标"
+        }
+      ]
+    },
+    {
+      "id": "R023",
+      "question": "E5 是否满足 ≤-18.0°C 的安全阈值？偏离多少？",
+      "source_modality": "heatmap",
+      "locator": "图6",
+      "expected_evidence": [
+        {
+          "label": "图6",
+          "modality": "visual",
+          "page": 8,
+          "record_ids": [
+            "0c71013b62d745806e315f85702abd420cd6475dad4fc109218b26d9af8d79cc"
+          ]
+        }
+      ],
+      "snapshot_build_id": "20260824T034351582057Z-3999474c",
+      "elapsed_ms": 1701.1700999973982,
+      "warnings": [],
+      "evidence": [
+        {
+          "label": "图6",
+          "modality": "visual",
+          "page": 8,
+          "record_ids": [
+            "0c71013b62d745806e315f85702abd420cd6475dad4fc109218b26d9af8d79cc"
+          ],
+          "rank": 2
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "record_id": "8889d2c695cc5b45063103b0c066e0ff8afb8af179a026d5f41ee3d857c5adc7",
+          "modality": "text",
+          "raw_score": 0.5978031158447266,
+          "fusion_score": 0.6141965584676774,
+          "page": 8,
+          "context": "1. 执行摘要与关键指标 / 7. 温控热力与空间布局"
+        },
+        {
+          "rank": 2,
+          "record_id": "0c71013b62d745806e315f85702abd420cd6475dad4fc109218b26d9af8d79cc",
+          "modality": "visual",
+          "raw_score": 0.5219202637672424,
+          "fusion_score": 0.5383137063901933,
+          "page": 8,
+          "context": "7. 温控热力与空间布局\n图 6 传感器热力图；E5 为最高温热点 -14.2°C，超过安全阈值。"
+        },
+        {
+          "rank": 3,
+          "record_id": "ae4c442ba505181e212ea06e7549e7e23470d266ac58c3a2f1e7d4683e72c4a6",
+          "modality": "table",
+          "raw_score": 0.5188679695129395,
+          "fusion_score": 0.5352614121358903,
+          "page": 7,
+          "context": ""
+        },
+        {
+          "rank": 4,
+          "record_id": "c4481718e7f2242b2d7c240ad955dbecd8a661c8dae44677f0e1cb86875df8c6",
+          "modality": "text",
+          "raw_score": 0.5058647394180298,
+          "fusion_score": 0.5219937716760943,
+          "page": 1,
+          "context": ""
+        },
+        {
+          "rank": 5,
+          "record_id": "874b595779985418cf580c487b25488365e1f9d4155eef8c818e0e28bd80549d",
+          "modality": "text",
+          "raw_score": 0.47870445251464844,
+          "fusion_score": 0.4945774683876643,
+          "page": 10,
+          "context": "1. 执行摘要与关键指标 / 9. 结论与行动计划"
+        },
+        {
+          "rank": 6,
+          "record_id": "ae52451ee5a4f7591c73bc3f8b1f8970008730628975fd1d48bcc8c17d8d10b9",
+          "modality": "text",
+          "raw_score": 0.46911537647247314,
+          "fusion_score": 0.48474037647247314,
+          "page": 2,
+          "context": "1. 执行摘要与关键指标"
+        },
+        {
+          "rank": 7,
+          "record_id": "06ec4e03e4487f3b69e0284c4de6d455dfad8495623acb3518480c53c15aaf47",
+          "modality": "text",
+          "raw_score": 0.4687344431877136,
+          "fusion_score": 0.484119058572329,
+          "page": 7,
+          "context": "1. 执行摘要与关键指标 / 6. 分区运营明细"
+        },
+        {
+          "rank": 8,
+          "record_id": "a404f578ca663dffc9bb81904634574f5537ca986fc050434464bcdefe1e7551",
+          "modality": "table",
+          "raw_score": 0.4546167552471161,
+          "fusion_score": 0.4707457875051806,
+          "page": 2,
+          "context": ""
+        },
+        {
+          "rank": 9,
+          "record_id": "5bf164b444427c59bc61513002da552099b65c2de16f3bfc72f2d3a06b3101e7",
+          "modality": "table",
+          "raw_score": 0.44823262095451355,
+          "fusion_score": 0.4641056368275294,
+          "page": 3,
+          "context": ""
+        },
+        {
+          "rank": 10,
+          "record_id": "538c5b7a414c24b0d4c7fd71ee705c248fad7c76239eec3d4f0d5bbf627f336b",
+          "modality": "table",
+          "raw_score": 0.4380730986595154,
+          "fusion_score": 0.4536980986595154,
+          "page": 5,
+          "context": ""
+        }
+      ]
+    },
+    {
+      "id": "R024",
+      "question": "平面图中的东门集合点位于哪一侧、靠近哪个功能区？",
+      "source_modality": "image",
+      "locator": "图7",
+      "expected_evidence": [
+        {
+          "label": "图7",
+          "modality": "visual",
+          "page": 8,
+          "record_ids": [
+            "0ea7c1415f0d5108938883f8adf81ff6e8dc0de0a2bc8be58e992b2044eda338"
+          ]
+        }
+      ],
+      "snapshot_build_id": "20260824T034351582057Z-3999474c",
+      "elapsed_ms": 2014.0035999975225,
+      "warnings": [],
+      "evidence": [
+        {
+          "label": "图7",
+          "modality": "visual",
+          "page": 8,
+          "record_ids": [
+            "0ea7c1415f0d5108938883f8adf81ff6e8dc0de0a2bc8be58e992b2044eda338"
+          ],
+          "rank": 2
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "record_id": "8889d2c695cc5b45063103b0c066e0ff8afb8af179a026d5f41ee3d857c5adc7",
+          "modality": "text",
+          "raw_score": 0.5089584589004517,
+          "fusion_score": 0.5253519015234025,
+          "page": 8,
+          "context": "1. 执行摘要与关键指标 / 7. 温控热力与空间布局"
+        },
+        {
+          "rank": 2,
+          "record_id": "0ea7c1415f0d5108938883f8adf81ff6e8dc0de0a2bc8be58e992b2044eda338",
+          "modality": "visual",
+          "raw_score": 0.4523282051086426,
+          "fusion_score": 0.4687216477315934,
+          "page": 8,
+          "context": "图 6 传感器热力图；E5 为最高温热点 -14.2°C，超过安全阈值。\n图 7 平面示意图；夜间补货路线从 A/B 通道穿过，终点靠近 C/F 之间。"
+        },
+        {
+          "rank": 3,
+          "record_id": "ae4c442ba505181e212ea06e7549e7e23470d266ac58c3a2f1e7d4683e72c4a6",
+          "modality": "table",
+          "raw_score": 0.41757386922836304,
+          "fusion_score": 0.4339673118513139,
+          "page": 7,
+          "context": ""
+        },
+        {
+          "rank": 4,
+          "record_id": "c4481718e7f2242b2d7c240ad955dbecd8a661c8dae44677f0e1cb86875df8c6",
+          "modality": "text",
+          "raw_score": 0.4177306890487671,
+          "fusion_score": 0.4338597213068316,
+          "page": 1,
+          "context": ""
+        }
+      ]
+    },
+    {
+      "id": "R025",
+      "question": "一级事件响应流程中 S2、S3、S4 分别是什么？",
+      "source_modality": "diagram",
+      "locator": "图8",
+      "expected_evidence": [
+        {
+          "label": "图8",
+          "modality": "visual",
+          "page": 9
+        }
+      ],
+      "snapshot_build_id": "20260824T034351582057Z-3999474c",
+      "elapsed_ms": 1545.4010999965249,
+      "warnings": [],
+      "evidence": [
+        {
+          "label": "图8",
+          "modality": "visual",
+          "page": 9,
+          "rank": 1
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "record_id": "2b1938a2a9beceffe149c9bfb177a1aceb1146ebef580c9a7029398e8984f326",
+          "modality": "visual",
+          "raw_score": 0.6968518495559692,
+          "fusion_score": 0.7132452921789201,
+          "page": 9,
+          "context": "8. 应急响应流程与风险矩阵\n图 8 一级事件响应流程。"
+        },
+        {
+          "rank": 2,
+          "record_id": "ba83fd4b2aef76a97923258617a382f7bd58bda45ad643d32038b8e5e42eba9d",
+          "modality": "text",
+          "raw_score": 0.68513023853302,
+          "fusion_score": 0.7015236811559709,
+          "page": 9,
+          "context": "1. 执行摘要与关键指标 / 8. 应急响应流程与风险矩阵"
+        },
+        {
+          "rank": 3,
+          "record_id": "ba74c89a1dddfee2e79167fa06f14425c8318ef4797b960aeb3bfdf495daffe6",
+          "modality": "table",
+          "raw_score": 0.5027924180030823,
+          "fusion_score": 0.5191858606260331,
+          "page": 9,
+          "context": ""
+        },
+        {
+          "rank": 4,
+          "record_id": "c4481718e7f2242b2d7c240ad955dbecd8a661c8dae44677f0e1cb86875df8c6",
+          "modality": "text",
+          "raw_score": 0.4340652823448181,
+          "fusion_score": 0.4501943146028826,
+          "page": 1,
+          "context": ""
+        },
+        {
+          "rank": 5,
+          "record_id": "8c1c8417e50cbec4e5ea88aefc25bccc60c1f975660c189d51728d2f5421cb96",
+          "modality": "table",
+          "raw_score": 0.4151274859905243,
+          "fusion_score": 0.4312565182485888,
+          "page": 10,
+          "context": ""
+        },
+        {
+          "rank": 6,
+          "record_id": "e52afb1317e5014470e88d56c796ff2d7e5f3c245bf108334c38bca20db9136d",
+          "modality": "table",
+          "raw_score": 0.4084317088127136,
+          "fusion_score": 0.4243047246857295,
+          "page": 1,
+          "context": ""
+        },
+        {
+          "rank": 7,
+          "record_id": "06ec4e03e4487f3b69e0284c4de6d455dfad8495623acb3518480c53c15aaf47",
+          "modality": "text",
+          "raw_score": 0.4077414274215698,
+          "fusion_score": 0.4236144432945857,
+          "page": 7,
+          "context": "1. 执行摘要与关键指标 / 6. 分区运营明细"
+        }
+      ]
+    },
+    {
+      "id": "R026",
+      "question": "风险分最高的事件是什么，责任人是谁？",
+      "source_modality": "table",
+      "locator": "风险矩阵",
+      "expected_evidence": [
+        {
+          "label": "风险矩阵",
+          "modality": "table",
+          "page": 9
+        }
+      ],
+      "snapshot_build_id": "20260824T034351582057Z-3999474c",
+      "elapsed_ms": 1345.600700002251,
+      "warnings": [],
+      "evidence": [
+        {
+          "label": "风险矩阵",
+          "modality": "table",
+          "page": 9,
+          "rank": 1
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "record_id": "ba74c89a1dddfee2e79167fa06f14425c8318ef4797b960aeb3bfdf495daffe6",
+          "modality": "table",
+          "raw_score": 0.6486746072769165,
+          "fusion_score": 0.6650680498998673,
+          "page": 9,
+          "context": ""
+        },
+        {
+          "rank": 2,
+          "record_id": "06ec4e03e4487f3b69e0284c4de6d455dfad8495623acb3518480c53c15aaf47",
+          "modality": "text",
+          "raw_score": 0.5637946724891663,
+          "fusion_score": 0.5801881151121171,
+          "page": 7,
+          "context": "1. 执行摘要与关键指标 / 6. 分区运营明细"
+        },
+        {
+          "rank": 3,
+          "record_id": "ba83fd4b2aef76a97923258617a382f7bd58bda45ad643d32038b8e5e42eba9d",
+          "modality": "text",
+          "raw_score": 0.5476866960525513,
+          "fusion_score": 0.5638157283106158,
+          "page": 9,
+          "context": "1. 执行摘要与关键指标 / 8. 应急响应流程与风险矩阵"
+        },
+        {
+          "rank": 4,
+          "record_id": "ae4c442ba505181e212ea06e7549e7e23470d266ac58c3a2f1e7d4683e72c4a6",
+          "modality": "table",
+          "raw_score": 0.4700363278388977,
+          "fusion_score": 0.4861653600969622,
+          "page": 7,
+          "context": ""
+        },
+        {
+          "rank": 5,
+          "record_id": "874b595779985418cf580c487b25488365e1f9d4155eef8c818e0e28bd80549d",
+          "modality": "text",
+          "raw_score": 0.46451014280319214,
+          "fusion_score": 0.480383158676208,
+          "page": 10,
+          "context": "1. 执行摘要与关键指标 / 9. 结论与行动计划"
+        },
+        {
+          "rank": 6,
+          "record_id": "e52afb1317e5014470e88d56c796ff2d7e5f3c245bf108334c38bca20db9136d",
+          "modality": "table",
+          "raw_score": 0.4616432189941406,
+          "fusion_score": 0.4775162348671565,
+          "page": 1,
+          "context": ""
+        },
+        {
+          "rank": 7,
+          "record_id": "8c1c8417e50cbec4e5ea88aefc25bccc60c1f975660c189d51728d2f5421cb96",
+          "modality": "table",
+          "raw_score": 0.45209020376205444,
+          "fusion_score": 0.46771520376205444,
+          "page": 10,
+          "context": ""
+        },
+        {
+          "rank": 8,
+          "record_id": "c4481718e7f2242b2d7c240ad955dbecd8a661c8dae44677f0e1cb86875df8c6",
+          "modality": "text",
+          "raw_score": 0.4478188753128052,
+          "fusion_score": 0.4634438753128052,
+          "page": 1,
+          "context": ""
+        },
+        {
+          "rank": 9,
+          "record_id": "ae52451ee5a4f7591c73bc3f8b1f8970008730628975fd1d48bcc8c17d8d10b9",
+          "modality": "text",
+          "raw_score": 0.40320664644241333,
+          "fusion_score": 0.4185912618270287,
+          "page": 2,
+          "context": "1. 执行摘要与关键指标"
+        }
+      ]
+    },
+    {
+      "id": "R027",
+      "question": "针对最大停机原因采取什么行动，目标是什么？",
+      "source_modality": "cross_page",
+      "locator": "图5+第10页行动表",
+      "expected_evidence": [
+        {
+          "label": "图5",
+          "modality": "visual",
+          "page": 6,
+          "record_ids": [
+            "dc07e2d54cfc389904698f4d8458ec56a1fe8197090a196324429a1acc439041"
+          ]
+        },
+        {
+          "label": "第10页行动计划表",
+          "modality": "table",
+          "page": 10
+        }
+      ],
+      "snapshot_build_id": "20260824T034351582057Z-3999474c",
+      "elapsed_ms": 1430.0583000003826,
+      "warnings": [],
+      "evidence": [
+        {
+          "label": "图5",
+          "modality": "visual",
+          "page": 6,
+          "record_ids": [
+            "dc07e2d54cfc389904698f4d8458ec56a1fe8197090a196324429a1acc439041"
+          ],
+          "rank": 4
+        },
+        {
+          "label": "第10页行动计划表",
+          "modality": "table",
+          "page": 10,
+          "rank": 3
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "record_id": "ba74c89a1dddfee2e79167fa06f14425c8318ef4797b960aeb3bfdf495daffe6",
+          "modality": "table",
+          "raw_score": 0.5734784603118896,
+          "fusion_score": 0.5898719029348405,
+          "page": 9,
+          "context": ""
+        },
+        {
+          "rank": 2,
+          "record_id": "91796b296f12e140cb8c83d4398fa3d954c19f8ad4f4d5e2cd832f3ab3d7dbfd",
+          "modality": "text",
+          "raw_score": 0.5486879348754883,
+          "fusion_score": 0.5650813774984391,
+          "page": 6,
+          "context": "1. 执行摘要与关键指标 / 5. 异常分布与停机原因"
+        },
+        {
+          "rank": 3,
+          "record_id": "8c1c8417e50cbec4e5ea88aefc25bccc60c1f975660c189d51728d2f5421cb96",
+          "modality": "table",
+          "raw_score": 0.4549558758735657,
+          "fusion_score": 0.4710849081316302,
+          "page": 10,
+          "context": ""
+        },
+        {
+          "rank": 4,
+          "record_id": "dc07e2d54cfc389904698f4d8458ec56a1fe8197090a196324429a1acc439041",
+          "modality": "visual",
+          "raw_score": 0.4303843080997467,
+          "fusion_score": 0.44677775072269754,
+          "page": 6,
+          "context": "图 4 各作业区异常类型构成。\n图 5 全年 400 小时停机的原因占比。"
+        },
+        {
+          "rank": 5,
+          "record_id": "874b595779985418cf580c487b25488365e1f9d4155eef8c818e0e28bd80549d",
+          "modality": "text",
+          "raw_score": 0.41913288831710815,
+          "fusion_score": 0.43526192057517266,
+          "page": 10,
+          "context": "1. 执行摘要与关键指标 / 9. 结论与行动计划"
+        },
+        {
+          "rank": 6,
+          "record_id": "c4481718e7f2242b2d7c240ad955dbecd8a661c8dae44677f0e1cb86875df8c6",
+          "modality": "text",
+          "raw_score": 0.4135804772377014,
+          "fusion_score": 0.4294534931107173,
+          "page": 1,
+          "context": ""
+        },
+        {
+          "rank": 7,
+          "record_id": "ae52451ee5a4f7591c73bc3f8b1f8970008730628975fd1d48bcc8c17d8d10b9",
+          "modality": "text",
+          "raw_score": 0.4092174768447876,
+          "fusion_score": 0.4248424768447876,
+          "page": 2,
+          "context": "1. 执行摘要与关键指标"
+        },
+        {
+          "rank": 8,
+          "record_id": "846f87b236db56c7e50ecc1c582ddc41b0a295ea449a24dca4ab72da0910ef6f",
+          "modality": "text",
+          "raw_score": 0.4084787368774414,
+          "fusion_score": 0.4238633522620568,
+          "page": 4,
+          "context": "1. 执行摘要与关键指标 / 3. 服务质量月度趋势"
+        }
+      ]
+    },
+    {
+      "id": "R028",
+      "question": "P0 行动项、截止日期和负责人是什么？",
+      "source_modality": "table",
+      "locator": "行动计划表",
+      "expected_evidence": [
+        {
+          "label": "行动计划表",
+          "modality": "table",
+          "page": 10
+        }
+      ],
+      "snapshot_build_id": "20260824T034351582057Z-3999474c",
+      "elapsed_ms": 1552.763399999094,
+      "warnings": [],
+      "evidence": [
+        {
+          "label": "行动计划表",
+          "modality": "table",
+          "page": 10,
+          "rank": 1
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "record_id": "8c1c8417e50cbec4e5ea88aefc25bccc60c1f975660c189d51728d2f5421cb96",
+          "modality": "table",
+          "raw_score": 0.6168378591537476,
+          "fusion_score": 0.6332313017766984,
+          "page": 10,
+          "context": ""
+        },
+        {
+          "rank": 2,
+          "record_id": "874b595779985418cf580c487b25488365e1f9d4155eef8c818e0e28bd80549d",
+          "modality": "text",
+          "raw_score": 0.48180148005485535,
+          "fusion_score": 0.4981949226778062,
+          "page": 10,
+          "context": "1. 执行摘要与关键指标 / 9. 结论与行动计划"
+        },
+        {
+          "rank": 3,
+          "record_id": "ba74c89a1dddfee2e79167fa06f14425c8318ef4797b960aeb3bfdf495daffe6",
+          "modality": "table",
+          "raw_score": 0.47390216588974,
+          "fusion_score": 0.4900311981478045,
+          "page": 9,
+          "context": ""
+        },
+        {
+          "rank": 4,
+          "record_id": "c4481718e7f2242b2d7c240ad955dbecd8a661c8dae44677f0e1cb86875df8c6",
+          "modality": "text",
+          "raw_score": 0.44371911883354187,
+          "fusion_score": 0.45984815109160637,
+          "page": 1,
+          "context": ""
+        },
+        {
+          "rank": 5,
+          "record_id": "06ec4e03e4487f3b69e0284c4de6d455dfad8495623acb3518480c53c15aaf47",
+          "modality": "text",
+          "raw_score": 0.4310135245323181,
+          "fusion_score": 0.446886540405334,
+          "page": 7,
+          "context": "1. 执行摘要与关键指标 / 6. 分区运营明细"
+        },
+        {
+          "rank": 6,
+          "record_id": "e52afb1317e5014470e88d56c796ff2d7e5f3c245bf108334c38bca20db9136d",
+          "modality": "table",
+          "raw_score": 0.430215984582901,
+          "fusion_score": 0.4460890004559169,
+          "page": 1,
+          "context": ""
+        },
+        {
+          "rank": 7,
+          "record_id": "ba83fd4b2aef76a97923258617a382f7bd58bda45ad643d32038b8e5e42eba9d",
+          "modality": "text",
+          "raw_score": 0.42183804512023926,
+          "fusion_score": 0.43746304512023926,
+          "page": 9,
+          "context": "1. 执行摘要与关键指标 / 8. 应急响应流程与风险矩阵"
+        },
+        {
+          "rank": 8,
+          "record_id": "ae52451ee5a4f7591c73bc3f8b1f8970008730628975fd1d48bcc8c17d8d10b9",
+          "modality": "text",
+          "raw_score": 0.4116916358470917,
+          "fusion_score": 0.42707625123170706,
+          "page": 2,
+          "context": "1. 执行摘要与关键指标"
+        },
+        {
+          "rank": 9,
+          "record_id": "5bf164b444427c59bc61513002da552099b65c2de16f3bfc72f2d3a06b3101e7",
+          "modality": "table",
+          "raw_score": 0.40381133556365967,
+          "fusion_score": 0.41943633556365967,
+          "page": 3,
+          "context": ""
+        }
+      ]
+    },
+    {
+      "id": "R029",
+      "question": "报告认为首要风险是什么？",
+      "source_modality": "body",
+      "locator": "结论",
+      "expected_evidence": [
+        {
+          "label": "结论",
+          "modality": "text",
+          "page": 10
+        }
+      ],
+      "snapshot_build_id": "20260824T034351582057Z-3999474c",
+      "elapsed_ms": 1304.7769000004337,
+      "warnings": [],
+      "evidence": [
+        {
+          "label": "结论",
+          "modality": "text",
+          "page": 10,
+          "rank": 3
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "record_id": "ba74c89a1dddfee2e79167fa06f14425c8318ef4797b960aeb3bfdf495daffe6",
+          "modality": "table",
+          "raw_score": 0.4435434937477112,
+          "fusion_score": 0.459936936370662,
+          "page": 9,
+          "context": ""
+        },
+        {
+          "rank": 2,
+          "record_id": "ba83fd4b2aef76a97923258617a382f7bd58bda45ad643d32038b8e5e42eba9d",
+          "modality": "text",
+          "raw_score": 0.4275924265384674,
+          "fusion_score": 0.44398586916141825,
+          "page": 9,
+          "context": "1. 执行摘要与关键指标 / 8. 应急响应流程与风险矩阵"
+        },
+        {
+          "rank": 3,
+          "record_id": "874b595779985418cf580c487b25488365e1f9d4155eef8c818e0e28bd80549d",
+          "modality": "text",
+          "raw_score": 0.42504823207855225,
+          "fusion_score": 0.44117726433661675,
+          "page": 10,
+          "context": "1. 执行摘要与关键指标 / 9. 结论与行动计划"
+        },
+        {
+          "rank": 4,
+          "record_id": "06ec4e03e4487f3b69e0284c4de6d455dfad8495623acb3518480c53c15aaf47",
+          "modality": "text",
+          "raw_score": 0.42362889647483826,
+          "fusion_score": 0.43950191234785413,
+          "page": 7,
+          "context": "1. 执行摘要与关键指标 / 6. 分区运营明细"
+        },
+        {
+          "rank": 5,
+          "record_id": "c4481718e7f2242b2d7c240ad955dbecd8a661c8dae44677f0e1cb86875df8c6",
+          "modality": "text",
+          "raw_score": 0.418758749961853,
+          "fusion_score": 0.434383749961853,
+          "page": 1,
+          "context": ""
+        }
+      ]
+    },
+    {
+      "id": "R030",
+      "question": "最终审批人和批准日期是什么？",
+      "source_modality": "body",
+      "locator": "审批信息",
+      "expected_evidence": [
+        {
+          "label": "审批信息",
+          "modality": "text",
+          "page": 10
+        }
+      ],
+      "snapshot_build_id": "20260824T034351582057Z-3999474c",
+      "elapsed_ms": 2203.9241999991646,
+      "warnings": [],
+      "evidence": [
+        {
+          "label": "审批信息",
+          "modality": "text",
+          "page": 10,
+          "rank": 1
+        }
+      ],
+      "hits": [
+        {
+          "rank": 1,
+          "record_id": "874b595779985418cf580c487b25488365e1f9d4155eef8c818e0e28bd80549d",
+          "modality": "text",
+          "raw_score": 0.6019834280014038,
+          "fusion_score": 0.6183768706243546,
+          "page": 10,
+          "context": "1. 执行摘要与关键指标 / 9. 结论与行动计划"
+        },
+        {
+          "rank": 2,
+          "record_id": "8c1c8417e50cbec4e5ea88aefc25bccc60c1f975660c189d51728d2f5421cb96",
+          "modality": "table",
+          "raw_score": 0.435886025428772,
+          "fusion_score": 0.4522794680517228,
+          "page": 10,
+          "context": ""
+        },
+        {
+          "rank": 3,
+          "record_id": "e52afb1317e5014470e88d56c796ff2d7e5f3c245bf108334c38bca20db9136d",
+          "modality": "table",
+          "raw_score": 0.42419296503067017,
+          "fusion_score": 0.44032199728873467,
+          "page": 1,
+          "context": ""
+        },
+        {
+          "rank": 4,
+          "record_id": "c4481718e7f2242b2d7c240ad955dbecd8a661c8dae44677f0e1cb86875df8c6",
+          "modality": "text",
+          "raw_score": 0.41319510340690613,
+          "fusion_score": 0.42932413566497063,
+          "page": 1,
+          "context": ""
+        },
+        {
+          "rank": 5,
+          "record_id": "06ec4e03e4487f3b69e0284c4de6d455dfad8495623acb3518480c53c15aaf47",
+          "modality": "text",
+          "raw_score": 0.4009556770324707,
+          "fusion_score": 0.4168286929054866,
+          "page": 7,
+          "context": "1. 执行摘要与关键指标 / 6. 分区运营明细"
+        }
+      ]
+    }
+  ]
+}

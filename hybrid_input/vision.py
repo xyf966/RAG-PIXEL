@@ -205,6 +205,22 @@ class PixelRAGEmbeddingSession:
             pooled = self._torch.nn.functional.normalize(pooled, p=2, dim=-1)
             return pooled.cpu().float().numpy()
 
+    def encode_text(self, text: str) -> list[int]:
+        """Tokenize index content with the resident model tokenizer."""
+        with self._lock:
+            self._ensure_loaded()
+            assert self._processor is not None
+            return list(self._processor.tokenizer.encode(text, add_special_tokens=False))
+
+    def decode_text(self, token_ids: list[int]) -> str:
+        """Decode model tokens used by structure-aware chunking."""
+        with self._lock:
+            self._ensure_loaded()
+            assert self._processor is not None
+            return str(
+                self._processor.tokenizer.decode(token_ids, skip_special_tokens=True)
+            )
+
     def close(self) -> None:
         """Release the resident model before process shutdown when desired."""
         import gc

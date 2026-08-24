@@ -134,6 +134,7 @@ flowchart LR
 - 页码：1；幻灯片：—；工作表：`合作伙伴权益`
 - 单元格范围：`A1:H38`
 - `bbox`：`[0.000000, 0.000000, 1.000000, 0.926829]`
+- `bbox_original`：`[0.000000, 0.000000, 8.000000, 38.000000]`
 - `locator`：`sheet:合作伙伴权益/range:A1:H38`
 - 表格规模：38 行 × 8 列
 - 合并范围（30）：`A1:H1`, `A2:A3`, `A36:C36`, `A37:C37`, `A38:H38`, `B10:B16`, `B17:B18`, `B19:B23`, `B27:B29`, `B2:B3`, `B31:B35`, `B4:B7`, `B8:B9`, `C2:C3`, `D13:D15`, `D26:G26`, `D2:F2`, `D36:G36`, `D37:G37`, `D4:D7`, `E13:E15`, `E4:E7`, `F13:F15`, `F4:F7`, `G13:G15`, `G2:G3`, `G4:G7`, `H17:H18`, `H2:H3`, `H4:H7`
@@ -188,6 +189,7 @@ flowchart LR
 - 页码：1；幻灯片：—；工作表：`合作伙伴权益`
 - 单元格范围：`A40:H40`
 - `bbox`：`[0.023236, 0.907915, 0.260290, 0.924917]`
+- `bbox_original`：`[19.559999, 540.391235, 219.111710, 545.110840]`
 - `locator`：`sheet:合作伙伴权益/range:A40:H40|page:1`
 
 #### 实际文字输出
@@ -203,6 +205,7 @@ flowchart LR
 - 页码：1；幻灯片：—；工作表：`合作伙伴权益`
 - 单元格范围：`A41:H41`
 - `bbox`：`[0.259646, 0.927270, 0.286152, 0.935200]`
+- `bbox_original`：`[218.570007, 551.911255, 240.882843, 556.630859]`
 - `locator`：`sheet:合作伙伴权益/range:A41:H41|page:1`
 
 #### 实际文字输出
@@ -217,6 +220,7 @@ flowchart LR
 - 页码：2；幻灯片：—；工作表：`Partnership Rights and Benefits`
 - 单元格范围：`A1:H38`
 - `bbox`：`[0.000000, 0.000000, 1.000000, 0.926829]`
+- `bbox_original`：`[0.000000, 0.000000, 8.000000, 38.000000]`
 - `locator`：`sheet:Partnership Rights and Benefits/range:A1:H38`
 - 表格规模：38 行 × 8 列
 - 合并范围（30）：`A1:H1`, `A2:A3`, `A36:C36`, `A37:C37`, `A38:H38`, `B10:B16`, `B17:B18`, `B19:B23`, `B27:B29`, `B2:B3`, `B31:B35`, `B4:B7`, `B8:B9`, `C2:C3`, `D13:D15`, `D26:G26`, `D2:F2`, `D36:G36`, `D37:G37`, `D4:D7`, `E13:E15`, `E4:E7`, `F13:F15`, `F4:F7`, `G13:G15`, `G2:G3`, `G4:G7`, `H17:H18`, `H2:H3`, `H4:H7`
@@ -271,6 +275,7 @@ flowchart LR
 - 页码：2；幻灯片：—；工作表：`Partnership Rights and Benefits`
 - 单元格范围：`A40:H40`
 - `bbox`：`[0.022951, 0.891085, 0.358289, 0.909136]`
+- `bbox_original`：`[19.320000, 530.373901, 301.607452, 541.117554]`
 - `locator`：`sheet:Partnership Rights and Benefits/range:A40:H40|page:2`
 
 #### 实际文字输出
@@ -286,6 +291,7 @@ Remarks: 1. The event calendar is subject to approval and publication by the Fed
 - 页码：2；幻灯片：—；工作表：`Partnership Rights and Benefits`
 - 单元格范围：`A41:H41`
 - `bbox`：`[0.186766, 0.915682, 0.202764, 0.921232]`
+- `bbox_original`：`[157.220001, 545.013855, 170.686844, 548.317566]`
 - `locator`：`sheet:Partnership Rights and Benefits/range:A41:H41|page:2`
 
 #### 实际文字输出

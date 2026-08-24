@@ -120,9 +120,19 @@ class MicrosoftOfficeVisualSubprocessRenderer:
             "--result", str(result_path.resolve()),
             "--mode", "office-visuals" if export else "office-inspect",
         ]
-        result = subprocess.run(
-            command, capture_output=True, text=True, encoding="utf-8", errors="replace"
-        )
+        try:
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=300,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(
+                f"Office native visual export timed out after 300 seconds: {source.name}"
+            ) from exc
         if result.returncode != 0:
             detail = (result.stderr or result.stdout).strip()
             raise RuntimeError(f"Office visual renderer failed ({result.returncode}): {detail}")

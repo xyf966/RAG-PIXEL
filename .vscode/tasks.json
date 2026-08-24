@@ -2,6 +2,25 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "Studio：启动桌面应用（无需调试器）",
+      "type": "process",
+      "command": "${workspaceFolder}\\.build-env\\Scripts\\python.exe",
+      "args": ["${workspaceFolder}\\pixelrag_studio.py"],
+      "options": {
+        "cwd": "${workspaceFolder}",
+        "env": {
+          "PYTHONUTF8": "1"
+        }
+      },
+      "presentation": {
+        "reveal": "silent",
+        "panel": "dedicated",
+        "focus": false,
+        "showReuseMessage": false
+      },
+      "problemMatcher": []
+    },
+    {
       "label": "检查：语法与最小测试",
       "type": "process",
       "command": "${workspaceFolder}\\.build-env\\Scripts\\python.exe",

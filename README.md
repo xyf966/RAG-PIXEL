@@ -58,16 +58,38 @@ PixelRAG 视觉处理器直接复用官方 `pixelrag_embed.embed_cpu` 后端。�
 结果统一写入工作区的 `.hybrid-output` 目录。测试可以直接使用 VS Code 的测试面板，
 或运行默认测试任务“检查：语法与最小测试”。
 
-PixelRAG Studio 是面向 Windows 的本地混合文档检索应用：
+PixelRAG Studio 当前提供面向 Windows 的本地混合文档输入、索引构建与检索检查：
 
 1. HybridPipeline 只识别文字、表格、视觉对象及来源位置；
-2. Office/PDF 视觉区域在索引阶段才被物化；
-3. 文字和表格写入结构化语义索引；
-4. 只有由 `visual` 物化并通过质量门的图片进入 Qwen3-VL-Embedding-2B；
-5. 图片向量写入 FAISS，并与文字/表格结果进行混合召回；
-6. Studio 展示命中通道、相似度、来源位置、文字内容或图片预览。
+2. 文字按标题、段落、位置和 token 上限进行结构感知分块；
+3. 表格按表头、行组和列组生成独立结构化块；
+4. Office/PDF 视觉区域在索引阶段才被物化并通过质量门；
+5. 三类块统一由 Qwen3-VL-Embedding-2B 生成 2048 维归一化向量；
+6. 文字、表格和视觉分别写入 schema 2.0 FAISS 索引快照；
+7. 检索检查器对三个通道召回、融合与去重，并展示原始证据和来源位置。
 
-Pixel 的逻辑输入只来自 `kind=visual`；内部物化出的临时 `kind=image` 不属于识别契约。文字和表格进入 Pixel 的数量必须为 0；没有视觉对象的文档仍可建立文字/表格索引。
+检索排序以统一向量空间中的原始余弦相似度为主，只保留原始分不低于 `0.40` 的候选；模态内名次仅提供小幅加成，并对视觉通道使用 `1.10` 的校准权重，避免无关表格仅因“表格通道第一名”而固定占据前排。
+
+Pixel 图像接口的逻辑输入只来自 `kind=visual`；内部物化出的临时 `kind=image` 不属于识别契约。文字和表格使用同一模型的文本接口，进入 Pixel 图像接口的数量必须为 0。没有视觉对象的文档仍可建立文字和表格索引。
+
+索引采用不可变快照。新快照全部写入并校验成功后，才通过 `CURRENT` 指针发布；构建失败不会覆盖上一个有效快照：
+
+```text
+index\
+├── CURRENT
+└── snapshots\<build-id>\
+    ├── manifest.json
+    ├── text.faiss
+    ├── text-metadata.jsonl
+    ├── table.faiss
+    ├── table-metadata.jsonl
+    ├── visual.faiss
+    ├── visual-metadata.jsonl
+    ├── visual-assets\
+    └── build-report.json
+```
+
+旧的 `hybrid-index.json / semantic-index.json / image-index.faiss` 属于 schema 1.x，不能由 schema 2.0 读取，需要重新构建。
 
 ## 独立使用
 
@@ -76,9 +98,11 @@ Pixel 的逻辑输入只来自 `kind=visual`；内部物化出的临时 `kind=im
 1. 创建项目；
 2. 添加 PDF、Office 文档、图片或支持的文本型文档；
 3. 点击“开始构建”；
-4. 等待日志显示索引完成；
-5. 点击“启动搜索服务”；
-6. 等待模型加载完成后输入问题并搜索。
+4. 等待日志显示 schema 2.0 索引快照完成；
+5. 打开“检索检查器”，输入问题并选择 Top K；
+6. 点击“搜索”，在左侧查看排名和分数，在右侧查看文字、表格或图片证据。
+
+当前阶段不调用 LLM，也不会生成回答。检索检查器只用于核对索引能否召回正确证据；首次查询需要加载向量模型，后续查询会复用已加载模型。
 
 程序不依赖 Codex，也不依赖原来的 Conda 环境。运行时、PixelRAG、Torch、Transformers、FAISS 和服务组件均包含在应用目录中。
 PDF 渲染所需的 Poppler 命令也随应用一起提供。
@@ -115,4 +139,4 @@ PixelRAG-Studio-Data\
 
 ## 支持格式
 
-PDF、PNG、JPG/JPEG、Markdown、TXT、HTML。
+PDF、DOC/DOCX、PPT/PPTX、XLS/XLSX、PNG、JPG/JPEG、WebP、Markdown、TXT、HTML。
