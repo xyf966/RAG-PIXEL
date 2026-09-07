@@ -171,6 +171,46 @@ def _intersection_ratio(left: list[float], right: list[float]) -> float:
     return intersection / area
 
 
+def _is_page_sized_bbox(bbox: list[float] | None) -> bool:
+    """Accept small crop/media-box margins when identifying a page raster."""
+    if not bbox or len(bbox) != 4:
+        return False
+    left, top, right, bottom = (float(value) for value in bbox)
+    width = max(0.0, min(right, 1.0) - max(left, 0.0))
+    height = max(0.0, min(bottom, 1.0) - max(top, 0.0))
+    return width >= 0.92 and height >= 0.92 and width * height >= 0.88
+
+
+def _classify_page_sized_visuals(artifacts: list[Artifact]) -> None:
+    """Separate page rasters from region visuals after OCR/layout conversion."""
+    meaningful_pages: set[int] = set()
+    for item in artifacts:
+        page = item.provenance.page
+        if not page or item.kind not in {"text", "table"}:
+            continue
+        value = re.sub(r"[\s|`:\-]", "", item.text or "")
+        if len(value) >= 8:
+            meaningful_pages.add(page)
+
+    for item in artifacts:
+        if item.kind != "visual" or not _is_page_sized_bbox(item.provenance.bbox):
+            continue
+        item.metadata["evidence_scope"] = "page"
+        item.metadata["llm_eligible"] = False
+        if item.provenance.page in meaningful_pages:
+            item.visual_type = "background"
+            item.metadata["visual_role"] = "background"
+            item.metadata["indexable"] = False
+        else:
+            # OCR can still fail on a damaged/unsupported scan.  Retain the
+            # page only as an explicitly coarse fallback; standard retrieval
+            # must never return it as final LLM evidence.
+            item.visual_type = "image"
+            item.metadata["visual_role"] = "page_visual"
+            item.metadata["coarse_only"] = True
+            item.metadata["indexable"] = True
+
+
 def _add_vector_visual_regions(
     document: Any, source: Path, doc_id: str, artifacts: list[Artifact]
 ) -> None:
@@ -185,13 +225,7 @@ def _add_vector_visual_regions(
             and item.provenance.bbox_original
             and item.kind in {"table", "visual"}
             and item.metadata.get("visual_role") != "background"
-            and not (
-                item.provenance.bbox
-                and item.provenance.bbox[0] <= 0.01
-                and item.provenance.bbox[1] <= 0.01
-                and item.provenance.bbox[2] >= 0.99
-                and item.provenance.bbox[3] >= 0.99
-            )
+            and not _is_page_sized_bbox(item.provenance.bbox)
         ]
         texts = [
             item for item in artifacts
@@ -306,16 +340,12 @@ def _convert_structure(source: Path, structure: dict[str, Any], output_dir: Path
             elif semantic_type in {"image", "picture", "figure", "chart"}:
                 image_path = _resolve_image(node.get("source"), raw_dir)
                 metadata["materialization_status"] = "raw-asset-available" if image_path else "deferred-to-index"
-                full_page = bool(normalized and normalized[0] <= 0.01 and normalized[1] <= 0.01 and normalized[2] >= 0.99 and normalized[3] >= 0.99)
-                if full_page:
-                    metadata["visual_role"] = "background"
-                    metadata["indexable"] = False
                 artifact = Artifact(
                     block_id, "visual", provenance,
                     asset_path=str(image_path) if image_path else None,
                     reading_order=order, parent_block_id=parent_id,
                     metadata=metadata,
-                    visual_type=("background" if full_page else ("chart" if semantic_type == "chart" else "image")),
+                    visual_type="chart" if semantic_type == "chart" else "image",
                 )
                 if image_path is None:
                     metadata["render_required"] = True
@@ -329,13 +359,20 @@ def _convert_structure(source: Path, structure: dict[str, Any], output_dir: Path
             if semantic_type == "heading" and heading_level:
                 heading_stack = {level: value for level, value in heading_stack.items() if level < heading_level}
                 heading_stack[heading_level] = block_id
+        _classify_page_sized_visuals(artifacts)
         _add_vector_visual_regions(document, source, doc_id, artifacts)
         return ArtifactBundle(doc_id, str(source.resolve()), "pdf", "opendataloader-pdf", artifacts, warnings)
     finally:
         document.close()
 
 
-def convert(source: Path, output_dir: Path, hybrid_url: str) -> ArtifactBundle:
+def convert(
+    source: Path,
+    output_dir: Path,
+    hybrid_url: str,
+    *,
+    strict_hybrid: bool = False,
+) -> ArtifactBundle:
     import opendataloader_pdf
 
     source = source.resolve()
@@ -358,9 +395,12 @@ def convert(source: Path, output_dir: Path, hybrid_url: str) -> ArtifactBundle:
         "--hybrid", "docling-fast",
         "--hybrid-mode", "full",
         "--hybrid-url", hybrid_url,
-        "--hybrid-fallback",
         "--quiet",
     ]
+    # A digital PDF can safely fall back to its native text layer.  A scanned
+    # PDF cannot: fallback would turn an OCR failure into an empty "success".
+    if not strict_hybrid:
+        command.append("--hybrid-fallback")
     result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip()
@@ -378,8 +418,14 @@ def main() -> None:
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--result", required=True, type=Path)
     parser.add_argument("--hybrid-url", required=True)
+    parser.add_argument("--strict-hybrid", action="store_true")
     args = parser.parse_args()
-    bundle = convert(args.input, args.output, args.hybrid_url)
+    bundle = convert(
+        args.input,
+        args.output,
+        args.hybrid_url,
+        strict_hybrid=args.strict_hybrid,
+    )
     args.result.parent.mkdir(parents=True, exist_ok=True)
     args.result.write_text(json.dumps(bundle.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8")
 

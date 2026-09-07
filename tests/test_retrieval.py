@@ -14,12 +14,17 @@ from hybrid_input.processors import image_content_sha256
 from hybrid_input.retrieval import (
     QUERY_INSTRUCTION,
     CandidateRanker,
+    EvidenceAssembler,
+    EvidenceExpander,
     HybridSearchEngine,
+    ModalitySearcher,
     PixelRAGQueryEmbedder,
+    QueryAwareTextReranker,
     SearchCandidate,
     SnapshotStore,
     VectorRetriever,
     VectorSearchResult,
+    _lexical_relevance_score,
 )
 from hybrid_input.retrieval_contracts import RetrievalFilter, RetrievalRequest
 
@@ -142,6 +147,30 @@ def _publish_snapshot(
 
 
 class SnapshotStoreTests(unittest.TestCase):
+    def test_lexical_relevance_tolerates_spelling_error_and_prioritizes_identifier(self) -> None:
+        related = _lexical_relevance_score(
+            "steering whell stw195",
+            "Steering Wheel STW195 Formula E",
+        )
+        unrelated = _lexical_relevance_score(
+            "steering whell stw195",
+            "Bosch motorsport racing series logos",
+        )
+        self.assertGreaterEqual(related, 4.5)
+        self.assertEqual(unrelated, 0.0)
+
+    def test_page_sized_pdf_visual_is_excluded_from_final_retrieval(self) -> None:
+        metadata = _metadata_row("visual", "page")
+        metadata.update(
+            {
+                "document_type": "pdf",
+                "provenance": {"page": 3, "bbox": [0.0137, 0.0, 0.9859, 1.001]},
+            }
+        )
+        self.assertFalse(ModalitySearcher._is_final_evidence_eligible("visual", metadata))
+        metadata["provenance"]["bbox"] = [0.2, 0.2, 0.7, 0.7]
+        self.assertTrue(ModalitySearcher._is_final_evidence_eligible("visual", metadata))
+
     def test_loads_all_modalities_and_reuses_cached_snapshot(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             index_dir = Path(temporary) / "index"
@@ -261,6 +290,156 @@ class FixedQueryEmbedder:
 
 
 class VectorRetrieverTests(unittest.TestCase):
+    def test_exact_keyword_recall_adds_record_outside_vector_top_k(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            index_dir = Path(temporary) / "index"
+            _publish_snapshot(
+                index_dir,
+                "build-a",
+                vectors_by_modality={
+                    "text": np.asarray(
+                        [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]],
+                        dtype=np.float32,
+                    ),
+                    "table": np.empty((0, 4), dtype=np.float32),
+                    "visual": np.empty((0, 4), dtype=np.float32),
+                },
+                metadata_overrides={
+                    "text": [
+                        {
+                            "record_id": "unrelated-1983",
+                            "embedding_text": "1983",
+                            "original_content": {"text": "1983"},
+                        },
+                        {
+                            "record_id": "television-page-7",
+                            "embedding_text": "Display Resolution: 3840 x 2160",
+                            "original_content": {
+                                "text": "Display Resolution: 3840 x 2160"
+                            },
+                            "provenance": {"source_file": "电视.pdf", "page": 7},
+                        },
+                    ]
+                },
+            )
+            result = VectorRetriever(
+                SnapshotStore(index_dir),
+                FixedQueryEmbedder([1.0, 0.0, 0.0, 0.0]),
+            ).search(
+                RetrievalRequest(
+                    "3840",
+                    top_k=1,
+                    candidate_k=1,
+                    modalities=("text",),
+                )
+            )
+
+            by_id = {
+                candidate.metadata["record_id"]: candidate
+                for candidate in result.candidates["text"]
+            }
+            self.assertEqual(set(by_id), {"unrelated-1983", "television-page-7"})
+            exact = by_id["television-page-7"]
+            self.assertEqual(exact.modality_rank, 0)
+            self.assertEqual(exact.keyword_rank, 1)
+            self.assertTrue(exact.exact_match)
+            ranked = CandidateRanker().rank(result, top_k=1)
+            self.assertEqual(
+                ranked.candidates[0].candidate.metadata["record_id"],
+                "television-page-7",
+            )
+
+    def test_evidence_expansion_returns_bounded_neighbor_window_across_pages(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            index_dir = Path(temporary) / "index"
+            _publish_snapshot(
+                index_dir,
+                "build-a",
+                vectors_by_modality={
+                    "text": np.asarray(
+                        [
+                            [1.0, 0.0, 0.0, 0.0],
+                            [0.9, 0.1, 0.0, 0.0],
+                            [0.8, 0.2, 0.0, 0.0],
+                            [0.7, 0.3, 0.0, 0.0],
+                        ],
+                        dtype=np.float32,
+                    ),
+                    "table": np.empty((0, 4), dtype=np.float32),
+                    "visual": np.empty((0, 4), dtype=np.float32),
+                },
+                metadata_overrides={
+                    "text": [
+                        {
+                            "record_id": "power-page-4-a",
+                            "embedding_text": "POWER safety instructions",
+                            "original_content": {"text": "POWER safety instructions"},
+                            "provenance": {"source_file": "电视.pdf", "page": 4},
+                            "next_record_id": "power-page-4-b",
+                        },
+                        {
+                            "record_id": "position-decoy",
+                            "embedding_text": "unrelated position decoy",
+                            "original_content": {"text": "unrelated position decoy"},
+                            "provenance": {"source_file": "电视.pdf", "page": 4},
+                        },
+                        {
+                            "record_id": "power-page-4-b",
+                            "embedding_text": "Pay particular attention to cords at the",
+                            "original_content": {
+                                "text": "Pay particular attention to cords at the"
+                            },
+                            "overlap_source_block_ids": ["text-block"],
+                            "provenance": {"source_file": "电视.pdf", "page": 4},
+                            "previous_record_id": "power-page-4-a",
+                            "next_record_id": "power-page-5",
+                        },
+                        {
+                            "record_id": "power-page-5",
+                            "embedding_text": "plug end, at wall outlets",
+                            "original_content": {"text": "plug end, at wall outlets"},
+                            "provenance": {"source_file": "电视.pdf", "page": 5},
+                            "previous_record_id": "power-page-4-b",
+                        },
+                    ]
+                },
+            )
+            snapshot = SnapshotStore(index_dir).get_snapshot()
+            seed = SearchCandidate(
+                modality="text",
+                modality_rank=1,
+                index_position=0,
+                raw_score=0.8,
+                metadata=snapshot.metadata["text"][0],
+            )
+
+            adjacent, pages = EvidenceExpander().expand(snapshot, seed, "power")
+
+            self.assertEqual(
+                [item["record_id"] for item in adjacent],
+                ["power-page-4-b", "power-page-5"],
+            )
+            self.assertEqual(pages, [4, 5])
+            self.assertEqual(adjacent[-1]["provenance"]["page"], 5)
+
+            reverse_seed = SearchCandidate(
+                modality="text",
+                modality_rank=1,
+                index_position=3,
+                raw_score=0.8,
+                metadata=snapshot.metadata["text"][3],
+            )
+            previous, reverse_pages = EvidenceExpander().expand(
+                snapshot,
+                reverse_seed,
+                "plug end",
+            )
+            self.assertEqual(
+                [item["record_id"] for item in previous],
+                ["power-page-4-b"],
+            )
+            self.assertEqual(reverse_pages, [4, 5])
+
     def test_embeds_once_and_searches_only_requested_modalities(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             index_dir = Path(temporary) / "index"
@@ -465,12 +644,19 @@ def _candidate(
     content_hash: str = "",
     source_block_ids: list[str] | None = None,
     overlap_source_block_ids: list[str] | None = None,
+    keyword_rank: int | None = None,
+    keyword_score: float = 0.0,
+    exact_match: bool = False,
+    text: str = "",
 ) -> SearchCandidate:
     return SearchCandidate(
         modality=modality,
         modality_rank=rank,
         index_position=rank - 1,
         raw_score=raw_score,
+        keyword_rank=keyword_rank,
+        keyword_score=keyword_score,
+        exact_match=exact_match,
         metadata={
             "record_id": record_id,
             "document_id": document_id,
@@ -478,6 +664,8 @@ def _candidate(
             "content_hash": content_hash,
             "source_block_ids": source_block_ids or [record_id],
             "overlap_source_block_ids": overlap_source_block_ids or [],
+            "embedding_text": text,
+            "original_content": {"text": text} if text else {},
         },
     )
 
@@ -487,7 +675,7 @@ def _vector_result(**modalities) -> VectorSearchResult:
 
 
 class CandidateRankerTests(unittest.TestCase):
-    def test_score_aware_fusion_is_relevance_first_and_deterministic(self) -> None:
+    def test_vector_rrf_is_rank_first_and_deterministic(self) -> None:
         result = _vector_result(
             text=(
                 _candidate("text", 1, 0.70, "text-1"),
@@ -500,13 +688,36 @@ class CandidateRankerTests(unittest.TestCase):
         first = CandidateRanker().rank(result, top_k=4)
         second = CandidateRanker().rank(result, top_k=4)
 
-        expected = ["text-2", "table-1", "visual-1", "text-1"]
+        expected = ["visual-1", "table-1", "text-1", "text-2"]
         self.assertEqual(
             [item.candidate.metadata["record_id"] for item in first.candidates],
             expected,
         )
         self.assertEqual(first.candidates, second.candidates)
         self.assertGreater(first.candidates[0].fusion_score, first.candidates[1].fusion_score)
+
+    def test_exact_keyword_candidate_bypasses_vector_threshold_and_wins(self) -> None:
+        result = _vector_result(
+            text=(
+                _candidate("text", 1, 0.60, "unrelated"),
+                _candidate(
+                    "text",
+                    0,
+                    0.10,
+                    "exact-3840",
+                    keyword_rank=1,
+                    keyword_score=2.0,
+                    exact_match=True,
+                ),
+            )
+        )
+
+        ranked = CandidateRanker().rank(result, top_k=2)
+
+        self.assertEqual(
+            [item.candidate.metadata["record_id"] for item in ranked.candidates],
+            ["exact-3840", "unrelated"],
+        )
 
     def test_modality_weights_can_adjust_score_aware_rank(self) -> None:
         result = _vector_result(
@@ -527,7 +738,7 @@ class CandidateRankerTests(unittest.TestCase):
 
         self.assertEqual(
             [item.candidate.metadata["record_id"] for item in ranked.candidates],
-            ["text-1", "visual-1"],
+            ["visual-1", "text-1"],
         )
 
     def test_visual_score_has_small_cross_modal_calibration(self) -> None:
@@ -605,8 +816,123 @@ class CandidateRankerTests(unittest.TestCase):
         ranked = CandidateRanker().rank(result, top_k=2)
         self.assertEqual(len(ranked.candidates), 2)
 
+    def test_text_reranker_promotes_query_aligned_text_only(self) -> None:
+        result = _vector_result(
+            text=(
+                _candidate(
+                    "text",
+                    1,
+                    0.70,
+                    "feed-solution",
+                    keyword_rank=1,
+                    text="解决送纸问题：调整纸张宽度导板并重新装入纸张。",
+                ),
+            ),
+            table=(_candidate("table", 1, 0.90, "table-1"),),
+            visual=(_candidate("visual", 1, 0.80, "visual-1"),),
+        )
+        coarse = CandidateRanker().rank(result, top_k=3)
+
+        reranked = QueryAwareTextReranker().rerank(
+            coarse,
+            "怎么解决送纸问题",
+            top_k=3,
+        )
+
+        self.assertEqual(
+            [item.candidate.metadata["record_id"] for item in reranked.candidates],
+            ["feed-solution", "visual-1", "table-1"],
+        )
+
+    def test_text_reranker_does_not_boost_unrelated_text(self) -> None:
+        result = _vector_result(
+            text=(_candidate("text", 1, 0.70, "text-1", text="保养周期说明"),),
+            visual=(_candidate("visual", 1, 0.80, "visual-1"),),
+        )
+        coarse = CandidateRanker().rank(result, top_k=2)
+
+        reranked = QueryAwareTextReranker().rerank(coarse, "怎么解决送纸问题", top_k=2)
+
+        self.assertEqual(reranked.candidates, coarse.candidates)
+
 
 class HybridSearchEngineTests(unittest.TestCase):
+    def test_text_anchor_attaches_at_most_one_table_and_visual_per_page(self) -> None:
+        def row(record_id: str, modality: str, text: str) -> dict:
+            return {
+                "record_id": record_id,
+                "document_id": "document-1",
+                "document_type": "pdf",
+                "embedding_text": text,
+                "original_content": {"text": text},
+                "source_block_ids": [record_id],
+                "structure": {},
+                "provenance": {"page": 3, "bbox": [0.1, 0.1, 0.4, 0.3]},
+                "asset_path": f"assets/{record_id}.png" if modality == "visual" else None,
+            }
+
+        anchor = _candidate(
+            "text",
+            1,
+            0.8,
+            "text-anchor",
+            text="解决送纸问题",
+        )
+        anchor.metadata.update(row("text-anchor", "text", "解决送纸问题"))
+        snapshot = type(
+            "Snapshot",
+            (),
+            {
+                "metadata": {
+                    "text": [anchor.metadata],
+                    "table": [
+                        row("table-1", "table", "送纸处理步骤"),
+                        row("table-2", "table", "送纸处理步骤补充"),
+                    ],
+                    "visual": [
+                        row("visual-1", "visual", "送纸机构示意图"),
+                        row("visual-2", "visual", "送纸机构细节图"),
+                    ],
+                }
+            },
+        )()
+
+        blocks = EvidenceAssembler().assemble(snapshot, anchor, [], "怎么解决送纸问题")
+        related = [block for block in blocks if block["role"] == "related"]
+
+        self.assertEqual([block["modality"] for block in related], ["table", "visual"])
+        self.assertTrue(
+            all(block["relation"] == "text_anchor_same_container" for block in related)
+        )
+
+    def test_table_evidence_uses_local_chunk_instead_of_repeating_full_table(self) -> None:
+        metadata = {
+            "record_id": "table-row-5",
+            "embedding_text": (
+                "Columns: 分类 | 权益说明\n"
+                "Row: 无形资产使用 | CTCC围场内品牌产品销售\n"
+                "Row: 无形资产使用 | CTCC车辆数据支持"
+            ),
+            "original_content": {"raw": "完整的38行原表"},
+            "structure": {
+                "headers": ["分类", "权益说明"],
+                "rows": [
+                    ["无形资产使用", "CTCC围场内品牌产品销售"],
+                    ["无形资产使用", "CTCC车辆数据支持"],
+                ],
+                "row_start": 5,
+                "row_end": 6,
+            },
+            "provenance": {"sheet": "中文", "cell_range": "A1:H38"},
+            "source_block_ids": ["table-block"],
+        }
+
+        block = EvidenceAssembler._block(metadata, "table", "core")
+
+        self.assertIn("CTCC围场内品牌产品销售", block["content"]["text"])
+        self.assertNotIn("完整的38行原表", block["content"]["text"])
+        self.assertEqual(block["content"]["structure"]["row_start"], 5)
+
     def test_search_returns_public_hits_with_provenance_and_visual_asset(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             index_dir = Path(temporary) / "index"
@@ -637,6 +963,14 @@ class HybridSearchEngineTests(unittest.TestCase):
             self.assertTrue(visual_path.is_file())
             self.assertTrue(visual_path.is_relative_to(snapshot.resolve()))
             self.assertEqual(response.hits[0].provenance["page"], 1)
+            evidence = response.hits[0].evidence_blocks
+            self.assertEqual(
+                {block["modality"] for block in evidence},
+                {"text", "table", "visual"},
+            )
+            visual_blocks = [block for block in evidence if block["modality"] == "visual"]
+            self.assertTrue(all(Path(block["asset_path"]).is_file() for block in visual_blocks))
+            self.assertTrue(any(block["role"] == "core" for block in evidence))
             self.assertGreaterEqual(response.elapsed_ms, 0)
             json.dumps(response.to_dict())
 

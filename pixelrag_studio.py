@@ -27,6 +27,7 @@ SUPPORTED = {
     ".md", ".txt", ".html", ".htm",
 }
 DEFAULT_MODEL = "Qwen/Qwen3-VL-Embedding-2B"
+DEFAULT_OLLAMA_MODEL = "qwen3:8b"
 
 
 def _configure_console_output() -> None:
@@ -63,7 +64,16 @@ def _format_retrieval_content(hit: dict[str, Any]) -> str:
         return content
     if isinstance(content, dict):
         if hit.get("modality") == "text" and isinstance(content.get("text"), str):
-            return content["text"]
+            primary = content["text"]
+            additions = []
+            for adjacent in hit.get("adjacent_context") or []:
+                adjacent_content = adjacent.get("content")
+                text = adjacent_content.get("text") if isinstance(adjacent_content, dict) else adjacent_content
+                if not isinstance(text, str) or not text.strip():
+                    continue
+                location = _format_retrieval_location(adjacent.get("provenance"))
+                additions.append(f"\n\n--- 邻接上下文（{location}）---\n{text}")
+            return primary + "".join(additions)
         if hit.get("modality") == "table":
             for key in ("raw", "markdown", "text"):
                 if isinstance(content.get(key), str) and content[key].strip():
@@ -75,15 +85,107 @@ def _format_retrieval_content(hit: dict[str, Any]) -> str:
     return json.dumps(content, ensure_ascii=False, indent=2) if content is not None else "无可显示内容"
 
 
+def _format_evidence_block_content(block: dict[str, Any]) -> str:
+    content = block.get("content")
+    modality = block.get("modality")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, dict):
+        if modality == "text" and isinstance(content.get("text"), str):
+            return content["text"]
+        if modality == "table":
+            for key in ("raw", "markdown", "text"):
+                if isinstance(content.get(key), str) and content[key].strip():
+                    return content[key]
+        if modality == "visual" and isinstance(content.get("context"), str):
+            return content["context"]
+        return json.dumps(content, ensure_ascii=False, indent=2)
+    context = block.get("context")
+    return context if isinstance(context, str) and context.strip() else ""
+
+
+def _format_evidence_block_header(block: dict[str, Any]) -> str:
+    role_labels = {"core": "核心", "neighbor": "邻接", "related": "同页关联"}
+    role = role_labels.get(str(block.get("role") or ""), "证据")
+    modality = str(block.get("modality") or "unknown").upper()
+    location = _format_retrieval_location(block.get("provenance"))
+    return f"[{role} · {modality} · {location}]"
+
+
 def _format_retrieval_hit_label(hit: dict[str, Any]) -> str:
     source = Path(str(hit.get("source_path") or "未知文档")).name
     modality = str(hit.get("modality") or "unknown").upper()
-    location = _format_retrieval_location(hit.get("provenance"))
+    pages = hit.get("context_pages") or []
+    if len(pages) > 1:
+        location = (
+            f"{_format_retrieval_location(hit.get('provenance'))} / "
+            f"上下文 第 {pages[0]}–{pages[-1]} 页"
+        )
+    else:
+        location = _format_retrieval_location(hit.get("provenance"))
     return (
         f"{int(hit.get('rank', 0)):02d}  [{modality:<6}]  "
         f"融合 {float(hit.get('fusion_score', 0)):.5f}  "
         f"原始 {float(hit.get('raw_score', 0)):.5f}  {source}  {location}"
     )
+
+
+def _format_answer_citation_label(citation: dict[str, Any]) -> str:
+    evidence_id = str(citation.get("evidence_id") or "E???")
+    source = Path(str(citation.get("source_path") or "未知文档")).name
+    modality = str(citation.get("modality") or "unknown").upper()
+    location = _format_retrieval_location(citation.get("provenance"))
+    return f"[{evidence_id}]  {source}  ·  {location}  ·  {modality}"
+
+
+def _format_answer_response(response: dict[str, Any]) -> str:
+    answer = str(response.get("answer_text") or "").strip()
+    limitations = [
+        str(value).strip() for value in response.get("limitations") or [] if str(value).strip()
+    ]
+    warnings = [
+        str(value).strip() for value in response.get("warnings") or [] if str(value).strip()
+    ]
+    sections = [answer] if answer else []
+    if limitations:
+        sections.append("限制：\n- " + "\n- ".join(limitations))
+    if warnings:
+        sections.append("诊断：\n- " + "\n- ".join(warnings))
+    return "\n\n".join(sections) or "没有可显示的回答。"
+
+
+def _format_answer_diagnostics(response: dict[str, Any]) -> str:
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    query = str(response.get("query_text") or "").strip()
+    status = str(response.get("status") or "unknown")
+    elapsed = float(response.get("elapsed_ms") or 0.0)
+    lines = [
+        f"\n[{timestamp}] Answer trace",
+        f"query={query!r} status={status} elapsed_ms={elapsed:.0f}",
+    ]
+    for decision in response.get("decisions") or []:
+        if not isinstance(decision, dict):
+            continue
+        rationale = " ".join(str(decision.get("rationale") or "").split())[:180]
+        lines.append(
+            "decision "
+            f"{decision.get('evidence_id', 'E???')} "
+            f"relevant={bool(decision.get('relevant'))} "
+            f"support={decision.get('support_level', 'none')} "
+            f"score={float(decision.get('score') or 0.0):.2f} "
+            f"rationale={rationale!r}"
+        )
+    for index, claim in enumerate(response.get("claims") or [], start=1):
+        if not isinstance(claim, dict):
+            continue
+        text = " ".join(str(claim.get("text") or "").split())[:240]
+        evidence_ids = ",".join(str(value) for value in claim.get("evidence_ids") or [])
+        lines.append(f"claim {index} evidence=[{evidence_ids}] text={text!r}")
+    for warning in response.get("warnings") or []:
+        lines.append(f"warning={str(warning)!r}")
+    for limitation in response.get("limitations") or []:
+        lines.append(f"limitation={str(limitation)!r}")
+    return "\n".join(lines) + "\n"
 
 
 def _runtime_root() -> Path:
@@ -195,12 +297,15 @@ def _worker_index(config_path: str, force: bool) -> None:
     device = config.get("embed", {}).get("device") or "cpu"
     if force:
         _safe_print("Forced rebuild requested")
+    else:
+        _safe_print("Incremental build requested; unchanged documents will be reused")
     build_hybrid_index(
         source_dir=source_dir,
         artifacts_dir=config_file.parent / "artifacts",
         index_dir=index_dir,
         model=model,
         device=device,
+        force=force,
     )
 
 
@@ -287,7 +392,11 @@ class StudioApp:
         self.server_is_ready = False
         self.search_engine = None
         self.search_busy = False
+        self.answer_busy = False
+        self.ollama_probe_busy = False
+        self.last_retrieval_response = None
         self.preview_image = None
+        self.evidence_images: list[Any] = []
         self._log_offset = 0
         self._last_server_log_offset = 0
         self._ingest_log_offset = 0
@@ -298,6 +407,13 @@ class StudioApp:
         self.status_text = tk.StringVar(value="就绪：请创建或打开项目")
         self.query_text = tk.StringVar()
         self.top_k = tk.IntVar(value=10)
+        self.ollama_model = tk.StringVar(
+            value=os.environ.get("PIXELRAG_OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL)
+        )
+        self.ollama_base_url = tk.StringVar(
+            value=os.environ.get("PIXELRAG_OLLAMA_BASE_URL", "http://127.0.0.1:11434")
+        )
+        self.send_visual_assets = tk.BooleanVar(value=False)
         self.force_rebuild = tk.BooleanVar(value=False)
 
         self._build_ui()
@@ -372,9 +488,14 @@ class StudioApp:
         self.notebook = ttk.Notebook(right)
         self.notebook.pack(fill="both", expand=True)
         search_tab = ttk.Frame(self.notebook, padding=12)
+        answer_tab = ttk.Frame(self.notebook, padding=12)
         log_tab = ttk.Frame(self.notebook, padding=8)
         about_tab = ttk.Frame(self.notebook, padding=18)
+        self.search_tab = search_tab
+        self.answer_tab = answer_tab
+        self.log_tab = log_tab
         self.notebook.add(search_tab, text="检索检查器")
+        self.notebook.add(answer_tab, text="证据回答")
         self.notebook.add(log_tab, text="运行日志")
         self.notebook.add(about_tab, text="能力说明")
 
@@ -409,6 +530,23 @@ class StudioApp:
         self.results.pack(fill="both", expand=True)
         self.results.bind("<<ListboxSelect>>", self._show_selected_result)
         self.result_payloads: list[dict] = []
+        self.result_view_mode = tk.StringVar(value="evidence")
+        view_controls = ttk.Frame(result_right)
+        view_controls.pack(fill="x", pady=(0, 6))
+        ttk.Radiobutton(
+            view_controls,
+            text="证据视图",
+            variable=self.result_view_mode,
+            value="evidence",
+            command=self._show_selected_result,
+        ).pack(side="left")
+        ttk.Radiobutton(
+            view_controls,
+            text="原页视图",
+            variable=self.result_view_mode,
+            value="original",
+            command=self._show_selected_result,
+        ).pack(side="left", padx=(10, 0))
         self.preview_container = ttk.Frame(result_right)
         self.preview_container.pack(fill="both", expand=True)
         self.preview = ttk.Label(self.preview_container, text="命中图片时显示预览", anchor="center")
@@ -431,6 +569,79 @@ class StudioApp:
         self.result_meta = ttk.Label(result_right, text="", wraplength=520, foreground="#374151")
         self.result_meta.pack(fill="x", pady=(8, 0))
 
+        answer_settings = ttk.LabelFrame(answer_tab, text="Ollama 回答模型", padding=10)
+        answer_settings.pack(fill="x")
+        ttk.Label(answer_settings, text="模型").grid(row=0, column=0, sticky="w")
+        self.ollama_model_combo = ttk.Combobox(
+            answer_settings,
+            textvariable=self.ollama_model,
+            width=36,
+        )
+        self.ollama_model_combo.grid(row=0, column=1, sticky="ew", padx=(6, 12))
+        ttk.Label(answer_settings, text="服务地址").grid(row=0, column=2, sticky="w")
+        ttk.Entry(
+            answer_settings,
+            textvariable=self.ollama_base_url,
+            width=30,
+        ).grid(row=0, column=3, sticky="ew", padx=(6, 12))
+        self.ollama_probe_button = ttk.Button(
+            answer_settings,
+            text="检测模型",
+            command=self._probe_ollama_models,
+        )
+        self.ollama_probe_button.grid(row=0, column=4, padx=(0, 8))
+        self.answer_button = ttk.Button(
+            answer_settings,
+            text="基于当前检索结果生成回答",
+            command=self._generate_answer,
+            state="disabled",
+        )
+        self.answer_button.grid(row=0, column=5)
+        ttk.Checkbutton(
+            answer_settings,
+            text="向支持视觉的 Ollama 模型发送图片",
+            variable=self.send_visual_assets,
+        ).grid(row=1, column=1, columnspan=3, sticky="w", pady=(8, 0))
+        ttk.Label(
+            answer_settings,
+            text="回答只使用通过筛选的证据；引用校验失败会自动修复一次，仍失败则不输出答案。",
+            foreground="#6b7280",
+        ).grid(row=1, column=3, columnspan=3, sticky="e", pady=(8, 0))
+        answer_settings.columnconfigure(1, weight=2)
+        answer_settings.columnconfigure(3, weight=1)
+
+        answer_result = ttk.Panedwindow(answer_tab, orient="vertical")
+        answer_result.pack(fill="both", expand=True, pady=(12, 0))
+        answer_text_frame = ttk.LabelFrame(answer_result, text="回答", padding=8)
+        citation_frame = ttk.LabelFrame(answer_result, text="引用来源", padding=8)
+        answer_result.add(answer_text_frame, weight=3)
+        answer_result.add(citation_frame, weight=1)
+        self.answer_text = tk.Text(
+            answer_text_frame,
+            wrap="word",
+            font=("Segoe UI", 11),
+            bg="#ffffff",
+            fg="#1f2937",
+            relief="solid",
+            borderwidth=1,
+        )
+        answer_scroll = ttk.Scrollbar(
+            answer_text_frame,
+            orient="vertical",
+            command=self.answer_text.yview,
+        )
+        self.answer_text.configure(yscrollcommand=answer_scroll.set)
+        self.answer_text.pack(side="left", fill="both", expand=True)
+        answer_scroll.pack(side="right", fill="y")
+        self.answer_text.insert("1.0", "请先在检索检查器中搜索，再生成带引用回答。")
+        self.answer_text.configure(state="disabled")
+        self.answer_citations = tk.Listbox(
+            citation_frame,
+            font=("Segoe UI", 10),
+            activestyle="none",
+        )
+        self.answer_citations.pack(fill="both", expand=True)
+
         self.log_text = tk.Text(log_tab, wrap="none", font=("Consolas", 9), bg="#111827", fg="#d1fae5")
         self.log_text.pack(fill="both", expand=True)
 
@@ -439,8 +650,8 @@ class StudioApp:
             "文档 → 原生结构解析 → 文字结构分块 / 表格结构分块 / visual 延迟物化 → "
             "Qwen3-VL-Embedding-2B 统一向量 → 三通道 FAISS 索引快照。\n\n"
             "Office 临时 PDF 只负责页面坐标补全和复杂视觉对象渲染；文字和表格不会进入 Pixel。\n\n"
-            "当前构建和检索固定使用 CPU，以保证无独立显卡的 Windows 电脑也能运行。"
-            "检索检查器已接入，回答生成层仍未接入。"
+            "当前构建和检索固定使用 CPU，以保证无独立显卡的 Windows 电脑也能运行。\n\n"
+            "证据回答层通过本机 Ollama 筛选证据、生成结构化主张，并执行强制引用校验。"
         )
         ttk.Label(about_tab, text=about, wraplength=760, justify="left", font=("Segoe UI", 11)).pack(anchor="nw")
         ttk.Label(
@@ -596,7 +807,7 @@ class StudioApp:
         )
         self.ingest_button.configure(state="disabled")
         self.status_text.set("正在解析：结构识别 → visual 分类与定位 → HybridDocument（不调用 Pixel）")
-        self.notebook.select(1)
+        self.notebook.select(self.log_tab)
 
     def _start_build(self) -> None:
         from tkinter import messagebox
@@ -612,15 +823,16 @@ class StudioApp:
         if self.ingest_process and self.ingest_process.poll() is None:
             messagebox.showinfo(APP_NAME, "Hybrid 输入正在解析，请等待完成后再构建索引。")
             return
-        if self.search_busy:
-            messagebox.showinfo(APP_NAME, "检索正在执行，请等待本次查询完成后再重建索引。")
+        if self.search_busy or self.answer_busy:
+            messagebox.showinfo(APP_NAME, "检索或回答正在执行，请等待本次任务完成后再重建索引。")
             return
         self._stop_server()
         self._set_search_controls(False)
         config = self._write_config()
         log_path = self.project_dir / "logs" / "build.log"
+        build_mode = "强制完全重建" if self.force_rebuild.get() else "增量构建"
         log_path.write_text(
-            f"[{datetime.now().isoformat(timespec='seconds')}] 开始构建 Hybrid 混合索引\n",
+            f"[{datetime.now().isoformat(timespec='seconds')}] 开始{build_mode} Hybrid 混合索引\n",
             encoding="utf-8",
         )
         self._log_offset = 0
@@ -635,8 +847,10 @@ class StudioApp:
             creationflags=flags,
         )
         self.build_button.configure(state="disabled")
-        self.status_text.set("正在构建：结构识别 → 按模态分块 → 统一 Embedding → schema 2.0 索引快照")
-        self.notebook.select(1)
+        self.status_text.set(
+            f"正在{build_mode}：未变文档复用旧向量，仅处理新增或变更文档"
+        )
+        self.notebook.select(self.log_tab)
 
     def _index_ready(self) -> bool:
         if not self.project_dir:
@@ -689,7 +903,7 @@ class StudioApp:
             engine = HybridSearchEngine(self.project_dir / "index", device="cpu")
             self.search_events.put(("ready", engine))
         except Exception as exc:
-            self.search_events.put(("error", str(exc)))
+            self.search_events.put(("search_error", str(exc)))
 
     def _server_url(self, path: str) -> str:
         return f"http://127.0.0.1:{self.server_port}{path}"
@@ -722,12 +936,29 @@ class StudioApp:
             self.top_k.set(top_k)
         self.search_busy = True
         self._set_search_controls(True)
-        self.status_text.set("正在检索；首次查询可能需要一些时间加载向量模型……")
-        threading.Thread(target=self._search_thread, args=(query, top_k), daemon=True).start()
+        self.status_text.set("正在生成双语查询并检索；首次查询可能需要一些时间加载模型……")
+        threading.Thread(
+            target=self._search_thread,
+            args=(
+                query,
+                top_k,
+                self.ollama_model.get().strip(),
+                self.ollama_base_url.get().strip(),
+            ),
+            daemon=True,
+        ).start()
 
-    def _search_thread(self, query: str, top_k: int) -> None:
+    def _search_thread(
+        self,
+        query: str,
+        top_k: int,
+        ollama_model: str,
+        ollama_base_url: str,
+    ) -> None:
         created_engine = None
         try:
+            from hybrid_input.answering import OllamaChatClient
+            from hybrid_input.retrieval import LLMEnglishQueryExpander
             from hybrid_input.retrieval_contracts import RetrievalRequest
 
             engine = self.search_engine
@@ -737,18 +968,141 @@ class StudioApp:
                 assert self.project_dir is not None
                 created_engine = HybridSearchEngine(self.project_dir / "index", device="cpu")
                 engine = created_engine
+            query_expander = None
+            if ollama_model:
+                query_expander = LLMEnglishQueryExpander(
+                    OllamaChatClient(
+                        ollama_model,
+                        base_url=ollama_base_url or "http://127.0.0.1:11434",
+                        timeout_seconds=45.0,
+                    )
+                )
             response = engine.search(
                 RetrievalRequest(
                     query_text=query,
                     top_k=top_k,
                     candidate_k=max(30, top_k),
+                ),
+                query_expander=query_expander,
+            )
+            self.search_events.put(
+                (
+                    "results",
+                    {
+                        "engine": created_engine,
+                        "response": response,
+                        "response_dict": response.to_dict(),
+                    },
                 )
             )
-            self.search_events.put(("results", {"engine": created_engine, "response": response.to_dict()}))
         except Exception as exc:
             if created_engine is not None:
                 created_engine.close()
-            self.search_events.put(("error", str(exc)))
+            self.search_events.put(("search_error", str(exc)))
+
+    def _probe_ollama_models(self) -> None:
+        if self.ollama_probe_busy:
+            return
+        self.ollama_probe_busy = True
+        self.ollama_probe_button.configure(state="disabled")
+        self.status_text.set("正在连接本机 Ollama 并读取模型列表……")
+        base_url = self.ollama_base_url.get().strip() or "http://127.0.0.1:11434"
+        threading.Thread(
+            target=self._probe_ollama_models_thread,
+            args=(base_url,),
+            daemon=True,
+        ).start()
+
+    def _probe_ollama_models_thread(self, base_url: str) -> None:
+        try:
+            from hybrid_input.answering import OllamaChatClient
+
+            client = OllamaChatClient(
+                "model-probe",
+                base_url=base_url,
+                timeout_seconds=8.0,
+            )
+            self.search_events.put(("ollama_models", client.list_models()))
+        except Exception as exc:
+            self.search_events.put(("ollama_error", str(exc)))
+
+    def _generate_answer(self) -> None:
+        from tkinter import messagebox
+
+        if self.answer_busy:
+            return
+        if self.last_retrieval_response is None:
+            messagebox.showwarning(APP_NAME, "请先在检索检查器中完成一次搜索。")
+            return
+        model = self.ollama_model.get().strip()
+        if not model:
+            messagebox.showwarning(APP_NAME, "请选择或输入一个 Ollama 回答模型。")
+            self.ollama_model_combo.focus_set()
+            return
+        self.answer_busy = True
+        self._set_answer_controls()
+        self._set_answer_text("正在筛选证据并生成回答……")
+        self.answer_citations.delete(0, self.tk.END)
+        self.status_text.set("正在通过 Ollama 筛选证据、生成回答并校验引用……")
+        retrieval_response = self.last_retrieval_response
+        send_visual_assets = bool(self.send_visual_assets.get())
+        threading.Thread(
+            target=self._answer_thread,
+            args=(model, self.ollama_base_url.get().strip(), retrieval_response, send_visual_assets),
+            daemon=True,
+        ).start()
+
+    def _answer_thread(
+        self,
+        model: str,
+        base_url: str,
+        retrieval_response: Any,
+        send_visual_assets: bool,
+    ) -> None:
+        try:
+            from hybrid_input.answering import AnswerEngine
+            from hybrid_input.answering_contracts import AnswerRequest
+
+            if retrieval_response is None:
+                raise RuntimeError("当前没有可用的检索响应")
+            engine = AnswerEngine.for_ollama(
+                model,
+                base_url=base_url or "http://127.0.0.1:11434",
+                send_visual_assets=send_visual_assets,
+            )
+            response = engine.answer(
+                AnswerRequest(
+                    query_text=retrieval_response.query_text,
+                    retrieval_response=retrieval_response,
+                )
+            )
+            self.search_events.put(("answer_results", response.to_dict()))
+        except Exception as exc:
+            self.search_events.put(("answer_error", str(exc)))
+
+    def _display_answer(self, response: dict[str, Any]) -> None:
+        self.log_text.insert(self.tk.END, _format_answer_diagnostics(response))
+        self.log_text.see(self.tk.END)
+        self._set_answer_text(_format_answer_response(response))
+        self.answer_citations.delete(0, self.tk.END)
+        for citation in response.get("citations") or []:
+            if isinstance(citation, dict):
+                self.answer_citations.insert(
+                    self.tk.END,
+                    _format_answer_citation_label(citation),
+                )
+        status = str(response.get("status") or "failed")
+        elapsed = float(response.get("elapsed_ms") or 0.0)
+        labels = {
+            "answered": "回答完成",
+            "insufficient_evidence": "证据不足，未生成推断性回答",
+            "failed": "回答失败并已安全停止",
+        }
+        self.status_text.set(
+            f"{labels.get(status, status)}：引用 {len(response.get('citations') or [])} 条，"
+            f"耗时 {elapsed:.0f} ms"
+        )
+        self.notebook.select(self.answer_tab)
 
     def _display_hits(self, response: dict[str, Any]) -> None:
         hits = response.get("hits", [])
@@ -763,41 +1117,137 @@ class StudioApp:
             warnings = response.get("warnings") or []
             suffix = f"；警告 {len(warnings)} 条" if warnings else ""
             self.status_text.set(f"检索完成：返回 {len(hits)} 个结果，耗时 {elapsed:.0f} ms{suffix}")
-            self.notebook.select(0)
+            self.notebook.select(self.search_tab)
         else:
             self.status_text.set("没有检索到结果")
 
     def _show_selected_result(self, _event=None) -> None:
-        from PIL import Image, ImageTk
-
         sel = self.results.curselection()
         if not sel or sel[0] >= len(self.result_payloads):
             return
         hit = self.result_payloads[sel[0]]
-        asset_path = hit.get("asset_path")
-        if hit.get("modality") == "visual" and asset_path and Path(asset_path).is_file():
-            try:
-                image = Image.open(asset_path).convert("RGB")
-                image.thumbnail((620, 520), Image.LANCZOS)
-                self.preview_image = ImageTk.PhotoImage(image)
-                self.result_text_frame.pack_forget()
-                self.preview.configure(image=self.preview_image, text="")
-                self.preview.pack(fill="both", expand=True)
-            except Exception as exc:
-                self._show_result_text(f"图片预览失败：{exc}\n\n{_format_retrieval_content(hit)}")
+        if self.result_view_mode.get() == "original":
+            self._show_original_page(hit)
         else:
-            self._show_result_text(_format_retrieval_content(hit))
+            self._show_evidence_view(hit)
         provenance = hit.get("provenance") or {}
+        pages = hit.get("context_pages") or []
+        location = (
+            f"{_format_retrieval_location(provenance)} / "
+            f"上下文 第 {pages[0]}–{pages[-1]} 页"
+            if len(pages) > 1
+            else _format_retrieval_location(provenance)
+        )
         self.result_meta.configure(
             text=(
                 f"文档：{hit.get('source_path', '')}\n"
                 f"模态：{hit.get('modality', '')}    排名：{hit.get('rank', '')}    "
                 f"融合分：{float(hit.get('fusion_score', 0)):.5f}    "
                 f"原始分：{float(hit.get('raw_score', 0)):.5f}\n"
-                f"位置：{_format_retrieval_location(provenance)}    "
+                f"位置：{location}    "
                 f"记录 ID：{hit.get('record_id', '')}"
             )
         )
+
+    def _show_evidence_view(self, hit: dict[str, Any]) -> None:
+        from PIL import Image, ImageTk
+
+        blocks = hit.get("evidence_blocks") or []
+        if not blocks:
+            self._show_result_text(_format_retrieval_content(hit))
+            return
+        self.preview.pack_forget()
+        self.preview.configure(image="", text="")
+        self.preview_image = None
+        self.evidence_images = []
+        self.result_text_frame.pack(fill="both", expand=True)
+        self.result_text.configure(state="normal")
+        self.result_text.delete("1.0", self.tk.END)
+        for index, block in enumerate(blocks):
+            if index:
+                self.result_text.insert(self.tk.END, "\n\n")
+            self.result_text.insert(
+                self.tk.END,
+                _format_evidence_block_header(block) + "\n",
+                ("evidence_header",),
+            )
+            asset_path = block.get("asset_path")
+            if block.get("modality") == "visual" and asset_path and Path(asset_path).is_file():
+                try:
+                    image = Image.open(asset_path).convert("RGB")
+                    image.thumbnail((480, 300), Image.LANCZOS)
+                    rendered = ImageTk.PhotoImage(image)
+                    self.evidence_images.append(rendered)
+                    self.result_text.image_create(self.tk.END, image=rendered)
+                    description = _format_evidence_block_content(block)
+                    if description:
+                        self.result_text.insert(self.tk.END, "\n" + description)
+                    continue
+                except Exception as exc:
+                    self.result_text.insert(self.tk.END, f"图片加载失败：{exc}\n")
+            self.result_text.insert(self.tk.END, _format_evidence_block_content(block))
+        self.result_text.tag_configure(
+            "evidence_header",
+            foreground="#1d4ed8",
+            font=("Segoe UI", 10, "bold"),
+        )
+        self.result_text.configure(state="disabled")
+
+    def _show_original_page(self, hit: dict[str, Any]) -> None:
+        from PIL import Image, ImageDraw, ImageTk
+
+        source = Path(str(hit.get("source_path") or ""))
+        provenance = hit.get("provenance") or {}
+        page_number = provenance.get("page")
+        if hit.get("document_type") != "pdf" or not source.is_file() or not page_number:
+            self._show_result_text("原页视图第一版仅支持具有有效页码的 PDF。")
+            return
+        try:
+            import pymupdf
+
+            document = pymupdf.open(source)
+            try:
+                if not 1 <= int(page_number) <= document.page_count:
+                    raise ValueError("页码超出 PDF 范围")
+                page = document.load_page(int(page_number) - 1)
+                scale = 1.5
+                pixmap = page.get_pixmap(
+                    matrix=pymupdf.Matrix(scale, scale),
+                    colorspace=pymupdf.csRGB,
+                    alpha=False,
+                )
+                image = Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
+                draw = ImageDraw.Draw(image)
+                for block in hit.get("evidence_blocks") or []:
+                    regions = block.get("regions") or [block.get("provenance") or {}]
+                    for region in regions:
+                        if region.get("page") != page_number:
+                            continue
+                        bbox = region.get("bbox")
+                        if not isinstance(bbox, (list, tuple)) or len(bbox) != 4:
+                            continue
+                        values = [float(value) for value in bbox]
+                        if max(abs(value) for value in values) <= 1.5:
+                            values = [
+                                values[0] * image.width,
+                                values[1] * image.height,
+                                values[2] * image.width,
+                                values[3] * image.height,
+                            ]
+                        else:
+                            values = [value * scale for value in values]
+                        color = "#dc2626" if block.get("role") == "core" else "#f59e0b"
+                        draw.rectangle(values, outline=color, width=4)
+            finally:
+                document.close()
+            image.thumbnail((620, 520), Image.LANCZOS)
+            self.preview_image = ImageTk.PhotoImage(image)
+            self.evidence_images = []
+            self.result_text_frame.pack_forget()
+            self.preview.configure(image=self.preview_image, text="")
+            self.preview.pack(fill="both", expand=True)
+        except Exception as exc:
+            self._show_result_text(f"原页渲染失败：{exc}")
 
     def _set_result_text(self, value: str) -> None:
         self.result_text.configure(state="normal")
@@ -805,10 +1255,17 @@ class StudioApp:
         self.result_text.insert("1.0", value)
         self.result_text.configure(state="disabled")
 
+    def _set_answer_text(self, value: str) -> None:
+        self.answer_text.configure(state="normal")
+        self.answer_text.delete("1.0", self.tk.END)
+        self.answer_text.insert("1.0", value)
+        self.answer_text.configure(state="disabled")
+
     def _show_result_text(self, value: str) -> None:
         self.preview.pack_forget()
         self.preview.configure(image="", text="")
         self.preview_image = None
+        self.evidence_images = []
         self.result_text_frame.pack(fill="both", expand=True)
         self._set_result_text(value)
 
@@ -824,6 +1281,19 @@ class StudioApp:
         self.start_search_button.configure(
             text="检索器已初始化" if self.search_engine is not None else "初始化检索器"
         )
+        self._set_answer_controls()
+
+    def _set_answer_controls(self) -> None:
+        if not hasattr(self, "answer_button"):
+            return
+        answer_state = (
+            "normal"
+            if self.last_retrieval_response is not None
+            and not self.search_busy
+            and not self.answer_busy
+            else "disabled"
+        )
+        self.answer_button.configure(state=answer_state)
 
     def _append_log_file(self, path: Path, offset_attr: str) -> None:
         if not path.exists():
@@ -855,9 +1325,42 @@ class StudioApp:
                 if payload.get("engine") is not None:
                     self.search_engine = payload["engine"]
                 self.search_busy = False
+                self.last_retrieval_response = payload.get("response")
                 self._set_search_controls(True)
-                response = payload.get("response")
+                response = payload.get("response_dict")
                 self._display_hits(response if isinstance(response, dict) else {})
+            elif event == "answer_results" and isinstance(payload, dict):
+                self.answer_busy = False
+                self._set_answer_controls()
+                self._display_answer(payload)
+            elif event == "answer_error":
+                self.answer_busy = False
+                self._set_answer_controls()
+                self._set_answer_text(f"回答生成失败：{payload}")
+                self.log_text.insert(
+                    self.tk.END,
+                    f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] "
+                    f"Answer error: {payload}\n",
+                )
+                self.log_text.see(self.tk.END)
+                self.status_text.set(f"回答生成失败：{payload}")
+                self.notebook.select(self.answer_tab)
+            elif event == "ollama_models" and isinstance(payload, list):
+                self.ollama_probe_busy = False
+                self.ollama_probe_button.configure(state="normal")
+                models = [str(value) for value in payload if str(value).strip()]
+                self.ollama_model_combo.configure(values=models)
+                if models and not self.ollama_model.get().strip():
+                    self.ollama_model.set(models[0])
+                self.status_text.set(
+                    f"Ollama 已连接：发现 {len(models)} 个模型"
+                    if models
+                    else "Ollama 已连接，但没有发现已安装模型"
+                )
+            elif event == "ollama_error":
+                self.ollama_probe_busy = False
+                self.ollama_probe_button.configure(state="normal")
+                self.status_text.set(f"Ollama 连接失败：{payload}")
             else:
                 self.search_busy = False
                 self._set_search_controls(self._index_ready())
@@ -897,6 +1400,7 @@ class StudioApp:
         if self.search_engine is not None:
             self.search_engine.close()
         self.search_engine = None
+        self.last_retrieval_response = None
         if self.server_process and self.server_process.poll() is None:
             self.server_process.terminate()
             try:
@@ -907,6 +1411,8 @@ class StudioApp:
         self.server_is_ready = False
         if hasattr(self, "start_search_button"):
             self._set_search_controls(False)
+        if hasattr(self, "answer_citations"):
+            self.answer_citations.delete(0, self.tk.END)
 
     def _on_close(self) -> None:
         self._stop_server()

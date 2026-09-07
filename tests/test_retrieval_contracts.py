@@ -116,6 +116,27 @@ class RetrievalContractTests(unittest.TestCase):
         self.assertEqual(hit.source_block_ids, ["block-1", "block-2"])
         self.assertEqual(hit.provenance, {"page": 2})
 
+    def test_hit_normalizes_cross_page_evidence(self) -> None:
+        adjacent = [{"content": {"text": "下一页"}, "provenance": {"page": 3}}]
+        evidence = [
+            {
+                "modality": "text",
+                "content": {"text": "证据"},
+                "provenance": {"page": 2},
+            }
+        ]
+        hit = _hit(
+            adjacent_context=adjacent,
+            context_pages=[3, 2, 3],
+            evidence_blocks=evidence,
+        )
+        adjacent[0]["content"]["text"] = "changed"
+        evidence[0]["content"]["text"] = "changed"
+
+        self.assertEqual(hit.context_pages, [2, 3])
+        self.assertEqual(hit.adjacent_context[0]["content"]["text"], "下一页")
+        self.assertEqual(hit.evidence_blocks[0]["content"]["text"], "证据")
+
     def test_hit_rejects_invalid_identity_scores_and_sources(self) -> None:
         cases = (
             ({"rank": 0}, ValueError),

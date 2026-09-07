@@ -11,9 +11,9 @@ from .contracts import Artifact, HybridDocument
 
 @dataclass(slots=True)
 class IndexBuildConfig:
-    text_target_tokens: int = 512
-    text_max_tokens: int = 768
-    text_overlap_tokens: int = 96
+    text_target_tokens: int = 256
+    text_max_tokens: int = 384
+    text_overlap_tokens: int = 48
     text_batch_size: int = 8
     table_max_rows: int = 20
     table_max_columns: int = 12
@@ -48,6 +48,8 @@ class IndexRecord:
     visual_type: str | None = None
     source_path: str = ""
     document_type: str = ""
+    previous_record_id: str | None = None
+    next_record_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -278,6 +280,9 @@ def build_text_records(
         if len(codec.encode(hard_candidate)) >= config.text_max_tokens:
             flush()
     flush()
+    for index, record in enumerate(records):
+        record.previous_record_id = records[index - 1].record_id if index else None
+        record.next_record_id = records[index + 1].record_id if index + 1 < len(records) else None
     return records
 
 
@@ -658,6 +663,10 @@ def build_visual_record(
         "visual_type": artifact.visual_type,
     }
     digest = _content_hash(content)
+    structure_metadata = dict(artifact.metadata)
+    structure_metadata.setdefault(
+        "llm_eligible", not bool(structure_metadata.get("coarse_only"))
+    )
     return IndexRecord(
         record_id=_record_id(document.document_id, "visual", [artifact.block_id], ordinal, digest),
         document_id=document.document_id,
@@ -666,7 +675,7 @@ def build_visual_record(
         embedding_text=artifact.context or "",
         original_content=content,
         context=artifact.context or "",
-        structure={"metadata": artifact.metadata},
+        structure={"metadata": structure_metadata},
         provenance=_provenance_dict(artifact),
         content_hash=digest,
         asset_path=artifact.asset_path,

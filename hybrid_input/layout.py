@@ -299,14 +299,173 @@ def _new_visual_artifact(bundle: ArtifactBundle, family: str, index: int) -> Art
 
 
 def _office_visual_type(visual: dict[str, object]) -> str:
-    object_type = int(visual.get("object_type") or 0)
+    hint = str(visual.get("visual_type_hint") or "").lower()
+    if hint in {"image", "chart", "diagram", "icon"}:
+        return hint
+    object_type = int(
+        visual.get("effective_object_type")
+        or visual.get("contained_object_type")
+        or visual.get("object_type")
+        or 0
+    )
     if object_type == 3:
         return "chart"
     if object_type in {21, 24}:
         return "diagram"
-    if object_type in {16, 30}:
+    if object_type in {28, 29}:
         return "icon"
     return "image"
+
+
+def _normalized_powerpoint_bounds(visual: dict[str, object]) -> list[float] | None:
+    bounds = visual.get("bounds_points")
+    size = visual.get("container_size_points")
+    if (
+        not isinstance(bounds, list) or len(bounds) != 4
+        or not isinstance(size, list) or len(size) != 2
+    ):
+        return None
+    try:
+        width, height = (float(value) for value in size)
+        left, top, right, bottom = (float(value) for value in bounds)
+    except (TypeError, ValueError):
+        return None
+    if width <= 0 or height <= 0:
+        return None
+    return [left / width, top / height, right / width, bottom / height]
+
+
+def _bbox_iou(left: list[float], right: list[float]) -> float:
+    intersection_width = max(0.0, min(left[2], right[2]) - max(left[0], right[0]))
+    intersection_height = max(0.0, min(left[3], right[3]) - max(left[1], right[1]))
+    intersection = intersection_width * intersection_height
+    left_area = max(0.0, left[2] - left[0]) * max(0.0, left[3] - left[1])
+    right_area = max(0.0, right[2] - right[0]) * max(0.0, right[3] - right[1])
+    union = left_area + right_area - intersection
+    return intersection / union if union > 0 else 0.0
+
+
+def _powerpoint_candidate_match_score(artifact: Artifact, target: list[float]) -> float:
+    box = artifact.provenance.bbox
+    if not isinstance(box, list) or len(box) != 4:
+        return 0.0
+    try:
+        normalized = [float(value) for value in box]
+    except (TypeError, ValueError):
+        return 0.0
+    flipped = [normalized[0], 1.0 - normalized[3], normalized[2], 1.0 - normalized[1]]
+    return max(_bbox_iou(normalized, target), _bbox_iou(flipped, target))
+
+
+def _bbox_containment(child: list[float], parent: list[float]) -> float:
+    width = max(0.0, child[2] - child[0])
+    height = max(0.0, child[3] - child[1])
+    area = width * height
+    if area <= 0:
+        return 0.0
+    intersection_width = max(0.0, min(child[2], parent[2]) - max(child[0], parent[0]))
+    intersection_height = max(0.0, min(child[3], parent[3]) - max(child[1], parent[1]))
+    return intersection_width * intersection_height / area
+
+
+def _attach_powerpoint_visual_hierarchy(artifacts: list[Artifact]) -> None:
+    groups = [
+        item for item in artifacts
+        if item.metadata.get("office_effective_object_type") in {6, 20, 24}
+        and isinstance(item.provenance.bbox, list)
+    ]
+    for child in artifacts:
+        child_box = child.provenance.bbox
+        if not isinstance(child_box, list) or len(child_box) != 4:
+            continue
+        child_area = max(0.0, child_box[2] - child_box[0]) * max(0.0, child_box[3] - child_box[1])
+        parents: list[tuple[float, Artifact]] = []
+        for parent in groups:
+            parent_box = parent.provenance.bbox
+            if (
+                parent is child
+                or parent.provenance.slide != child.provenance.slide
+                or not isinstance(parent_box, list) or len(parent_box) != 4
+            ):
+                continue
+            parent_area = max(0.0, parent_box[2] - parent_box[0]) * max(0.0, parent_box[3] - parent_box[1])
+            if parent_area <= child_area * 1.05:
+                continue
+            if _bbox_containment(child_box, parent_box) >= 0.92:
+                parents.append((parent_area, parent))
+        if not parents:
+            continue
+        parent = min(parents, key=lambda item: item[0])[1]
+        child.metadata["parent_visual_id"] = parent.block_id
+        parent.metadata.setdefault("child_visual_ids", []).append(child.block_id)
+
+
+def _recognize_powerpoint_visuals(
+    bundle: ArtifactBundle,
+    visuals: list[dict[str, object]],
+    candidates: list[Artifact],
+) -> list[Artifact]:
+    """Merge COM shapes with parser pictures by slide and geometry, never order."""
+    added: list[Artifact] = []
+    recognized: list[Artifact] = []
+    unused = set(range(len(candidates)))
+    for index, visual in enumerate(visuals):
+        slide = int(visual.get("slide") or 0)
+        normalized_bounds = _normalized_powerpoint_bounds(visual)
+        ranked: list[tuple[float, int]] = []
+        if slide and normalized_bounds is not None:
+            for candidate_index in unused:
+                candidate = candidates[candidate_index]
+                candidate_slide = candidate.provenance.slide or candidate.provenance.page
+                if candidate_slide != slide:
+                    continue
+                score = _powerpoint_candidate_match_score(candidate, normalized_bounds)
+                if score > 0:
+                    ranked.append((score, candidate_index))
+        ranked.sort(reverse=True)
+        if ranked and ranked[0][0] >= 0.62:
+            match_score, candidate_index = ranked[0]
+            artifact = candidates[candidate_index]
+            unused.remove(candidate_index)
+            artifact.metadata["office_geometry_match_iou"] = round(match_score, 4)
+        else:
+            artifact = _new_visual_artifact(bundle, "ppt", index)
+            added.append(artifact)
+
+        artifact.kind = "visual"
+        artifact.visual_type = _office_visual_type(visual)
+        artifact.asset_path = None
+        artifact.provenance.slide = slide or artifact.provenance.slide
+        artifact.provenance.page = artifact.provenance.slide
+        artifact.provenance.locator = (
+            f"powerpoint-shape:{artifact.provenance.slide}:"
+            f"{visual.get('shape_index') or index}"
+        )
+        bounds = visual.get("bounds_points")
+        if isinstance(bounds, list) and len(bounds) == 4:
+            artifact.provenance.bbox_original = [float(value) for value in bounds]
+        if normalized_bounds is not None:
+            artifact.provenance.bbox = normalized_bounds
+            artifact.provenance.coord_origin = "TOPLEFT"
+        artifact.metadata.update({
+            "structure_origin": "office-native-visual",
+            "office_object_type": visual.get("object_type"),
+            "office_contained_object_type": visual.get("contained_object_type"),
+            "office_effective_object_type": visual.get("effective_object_type"),
+            "office_collection": visual.get("collection"),
+            "office_shape_index": visual.get("shape_index"),
+            "office_container_size_points": visual.get("container_size_points"),
+            "materialization_status": "deferred-to-index",
+        })
+        text = str(visual.get("text") or "").strip()
+        if text:
+            artifact.context = text
+            artifact.metadata["context_locked"] = True
+        recognized.append(artifact)
+
+    _attach_powerpoint_visual_hierarchy(recognized)
+    bundle.artifacts.extend(added)
+    return recognized
 
 
 def recognize_office_visuals(
@@ -314,6 +473,9 @@ def recognize_office_visuals(
 ) -> None:
     """Attach Office-native visual identity/location without exporting pixels."""
     candidates = [item for item in bundle.artifacts if item.kind in {"image", "visual_task", "visual"}]
+    if bundle.document_type in {"ppt", "pptx"}:
+        _recognize_powerpoint_visuals(bundle, visuals, candidates)
+        return
     added: list[Artifact] = []
     family = {"doc": "word", "docx": "word", "ppt": "ppt", "pptx": "ppt", "xls": "excel", "xlsx": "excel"}[bundle.document_type]
     for index, visual in enumerate(visuals):
@@ -326,6 +488,8 @@ def recognize_office_visuals(
         artifact.metadata.update({
             "structure_origin": "office-native-visual",
             "office_object_type": visual.get("object_type"),
+            "office_contained_object_type": visual.get("contained_object_type"),
+            "office_effective_object_type": visual.get("effective_object_type"),
             "office_collection": visual.get("collection"),
             "office_shape_index": visual.get("shape_index") or visual.get("collection_index"),
             "materialization_status": "deferred-to-index",

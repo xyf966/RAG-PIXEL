@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import math
 from dataclasses import asdict, dataclass, field
 from typing import Any, Iterable
@@ -139,6 +140,9 @@ class RetrievalHit:
     source_path: str
     document_type: str
     asset_path: str | None = None
+    adjacent_context: list[dict[str, Any]] = field(default_factory=list)
+    context_pages: list[int] = field(default_factory=list)
+    evidence_blocks: list[dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if isinstance(self.rank, bool) or not isinstance(self.rank, int):
@@ -177,6 +181,22 @@ class RetrievalHit:
         ).lower()
         if self.asset_path is not None:
             self.asset_path = _required_text(self.asset_path, "asset_path")
+        if not isinstance(self.adjacent_context, list) or not all(
+            isinstance(item, dict) for item in self.adjacent_context
+        ):
+            raise TypeError("adjacent_context must be a list of dictionaries")
+        self.adjacent_context = copy.deepcopy(self.adjacent_context)
+        if not isinstance(self.context_pages, list) or any(
+            isinstance(page, bool) or not isinstance(page, int) or page < 1
+            for page in self.context_pages
+        ):
+            raise TypeError("context_pages must be a list of positive integers")
+        self.context_pages = list(dict.fromkeys(sorted(self.context_pages)))
+        if not isinstance(self.evidence_blocks, list) or not all(
+            isinstance(item, dict) for item in self.evidence_blocks
+        ):
+            raise TypeError("evidence_blocks must be a list of dictionaries")
+        self.evidence_blocks = copy.deepcopy(self.evidence_blocks)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

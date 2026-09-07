@@ -13,6 +13,7 @@ from hybrid_input.contracts import Artifact, HybridDocument, Provenance, VisionR
 from hybrid_input.index_records import CharacterTokenCodec, IndexBuildConfig, build_table_records, build_text_records
 from hybrid_input.indexing import (
     _materialize_visuals_for_index,
+    _office_visual_identity,
     build_index_snapshot,
     current_snapshot,
     prepare_visual_index,
@@ -66,6 +67,36 @@ class UnusedRenderer:
 
 
 class HybridIndexTests(unittest.TestCase):
+    def test_office_visual_identity_matches_recognition_to_export_by_container(self) -> None:
+        ppt = Artifact(
+            "ppt-shape", "visual", Provenance("deck.pptx", slide=5),
+            visual_type="diagram", metadata={"office_shape_index": 4},
+        )
+        excel = Artifact(
+            "excel-shape", "visual", Provenance("book.xlsx", sheet="Dashboard"),
+            visual_type="chart", metadata={"office_shape_index": 2},
+        )
+        word = Artifact(
+            "word-shape", "visual", Provenance("report.docx", page=3),
+            visual_type="image",
+            metadata={"office_collection": "InlineShapes", "office_shape_index": 7},
+        )
+
+        self.assertEqual(
+            _office_visual_identity("pptx", ppt),
+            _office_visual_identity("pptx", {"slide": 5, "shape_index": 4}),
+        )
+        self.assertEqual(
+            _office_visual_identity("xlsx", excel),
+            _office_visual_identity("xlsx", {"sheet": "Dashboard", "shape_index": 2}),
+        )
+        self.assertEqual(
+            _office_visual_identity("docx", word),
+            _office_visual_identity(
+                "docx", {"page": 3, "collection": "InlineShapes", "collection_index": 7}
+            ),
+        )
+
     def test_text_chunking_preserves_titles_pages_overlap_and_stable_ids(self) -> None:
         artifacts = [
             Artifact("h1", "text", Provenance("doc", page=1), text="1. 概况", reading_order=1, metadata={"level": 1}),
@@ -88,9 +119,22 @@ class HybridIndexTests(unittest.TestCase):
         self.assertEqual([item.record_id for item in first], [item.record_id for item in second])
         self.assertTrue(all(len(codec.encode(item.embedding_text)) <= 48 for item in first))
         self.assertTrue(any(item.overlap_source_block_ids for item in first))
+        self.assertIsNone(first[0].previous_record_id)
+        self.assertEqual(
+            [item.next_record_id for item in first[:-1]],
+            [item.record_id for item in first[1:]],
+        )
+        self.assertIsNone(first[-1].next_record_id)
         pages_by_id = {artifact.block_id: artifact.provenance.page for artifact in artifacts}
         self.assertTrue(
             all(len({pages_by_id[block_id] for block_id in item.source_block_ids}) == 1 for item in first)
+        )
+        self.assertTrue(
+            any(
+                first[index].provenance.get("page") != first[index + 1].provenance.get("page")
+                and first[index].next_record_id == first[index + 1].record_id
+                for index in range(len(first) - 1)
+            )
         )
         self.assertIn("1. 概况", first[0].context)
         self.assertEqual(first[0].embedding_text.count("1. 概况"), 1)
@@ -98,6 +142,12 @@ class HybridIndexTests(unittest.TestCase):
             [item["block_id"] for item in first[0].structure["source_provenance"]],
             first[0].source_block_ids,
         )
+
+    def test_text_defaults_use_smaller_logical_chunks(self) -> None:
+        config = IndexBuildConfig()
+        self.assertEqual(config.text_target_tokens, 256)
+        self.assertEqual(config.text_max_tokens, 384)
+        self.assertEqual(config.text_overlap_tokens, 48)
 
     def test_long_text_respects_hard_limit_and_uses_overlapping_windows(self) -> None:
         artifact = Artifact(

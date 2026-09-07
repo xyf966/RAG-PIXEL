@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -18,16 +21,244 @@ from hybrid_input.layout import (
     materialize_excel_visuals,
     materialize_powerpoint_visuals,
     materialize_word_visuals,
+    recognize_office_visuals,
 )
-from hybrid_input.parsers import FallbackDocumentParser
+from hybrid_input.parsers import (
+    FallbackDocumentParser,
+    OpenDataLoaderPdfSubprocessParser,
+    ScannedPdfOcrError,
+)
 from hybrid_input.pipeline import PipelineConfig, build_default_pipeline
 from hybrid_input.processors import PillowImageProcessor
 from hybrid_input.vision import PixelRAGVisionProcessor
-from hybrid_input.opendataloader_worker import _add_vector_visual_regions, _table_data
-from hybrid_input.office_worker import _word_diagram_texts
+from hybrid_input.opendataloader_worker import (
+    _add_vector_visual_regions,
+    _classify_page_sized_visuals,
+    _table_data,
+)
+from hybrid_input.office_worker import (
+    _correct_word_inline_bounds,
+    _office_visual_candidate,
+    _visual_metadata,
+    _word_diagram_texts,
+)
 
 
 class HybridInputSmokeTests(unittest.TestCase):
+    def test_powerpoint_visuals_match_by_geometry_when_parser_order_differs(self) -> None:
+        wheel = Artifact(
+            "wheel", "image", Provenance(
+                "deck.pptx", page=7, slide=7,
+                bbox=[0.7995, 0.1737, 0.9148, 0.3126],
+            ),
+        )
+        logos = Artifact(
+            "logos", "image", Provenance(
+                "deck.pptx", page=7, slide=7,
+                bbox=[0.0399, 0.1420, 0.2264, 0.2882],
+            ),
+        )
+        bundle = ArtifactBundle("ppt", "deck.pptx", "pptx", "test", [logos, wheel])
+        visuals = [
+            {
+                "slide": 7, "shape_index": 16, "object_type": 13,
+                "effective_object_type": 13, "visual_type_hint": "image",
+                "bounds_points": [690.58, 334.01, 790.15, 401.48],
+                "container_size_points": [863.76, 485.88],
+            },
+            {
+                "slide": 7, "shape_index": 9, "object_type": 13,
+                "effective_object_type": 13, "visual_type_hint": "image",
+                "bounds_points": [34.48, 345.85, 195.53, 416.90],
+                "container_size_points": [863.76, 485.88],
+            },
+        ]
+
+        recognize_office_visuals(bundle, visuals)
+
+        self.assertEqual(wheel.metadata["office_shape_index"], 16)
+        self.assertEqual(logos.metadata["office_shape_index"], 9)
+        self.assertGreater(wheel.metadata["office_geometry_match_iou"], 0.99)
+        self.assertAlmostEqual(wheel.provenance.bbox[1], 334.01 / 485.88, places=4)
+
+    def test_powerpoint_child_visual_inherits_spatial_group_context(self) -> None:
+        title = Artifact(
+            "title", "text",
+            Provenance("deck.pptx", page=7, slide=7, bbox=[0.81, 0.625, 0.968, 0.653]),
+            text="Steering Wheel STW195", reading_order=1,
+        )
+        bundle = ArtifactBundle("ppt", "deck.pptx", "pptx", "test", [title])
+        visuals = [
+            {
+                "slide": 7, "shape_index": 11, "object_type": 6,
+                "effective_object_type": 6, "visual_type_hint": "image",
+                "bounds_points": [626.76, 296.87, 856.46, 436.13],
+                "container_size_points": [863.76, 485.88],
+            },
+            {
+                "slide": 7, "shape_index": 16, "object_type": 13,
+                "effective_object_type": 13, "visual_type_hint": "image",
+                "bounds_points": [690.58, 334.01, 790.15, 401.48],
+                "container_size_points": [863.76, 485.88],
+            },
+        ]
+        recognize_office_visuals(bundle, visuals)
+
+        NearbyTextContextEnricher().enrich(bundle.artifacts)
+
+        parent = next(item for item in bundle.artifacts if item.metadata.get("office_shape_index") == 11)
+        child = next(item for item in bundle.artifacts if item.metadata.get("office_shape_index") == 16)
+        self.assertEqual(child.metadata["parent_visual_id"], parent.block_id)
+        self.assertEqual(parent.context, "Steering Wheel STW195")
+        self.assertEqual(child.context, "Steering Wheel STW195")
+        self.assertEqual(child.metadata["context_source"], "spatial_artifacts")
+        self.assertEqual(parent.metadata["context_source"], "child_visuals")
+
+    def test_office_visual_candidate_keeps_visual_inside_placeholder(self) -> None:
+        class PlaceholderFormat:
+            ContainedType = 24
+
+        class SmartArtPlaceholder:
+            Type = 14
+            HasChart = False
+            HasSmartArt = True
+            HasDiagram = False
+
+        shape = SmartArtPlaceholder()
+        shape.PlaceholderFormat = PlaceholderFormat()
+        self.assertTrue(_office_visual_candidate(shape))
+        self.assertEqual(_visual_metadata(shape, 14)["effective_object_type"], 24)
+        self.assertEqual(_visual_metadata(shape, 14)["visual_type_hint"], "diagram")
+
+    def test_office_visual_candidate_rejects_text_only_placeholder(self) -> None:
+        class PlaceholderFormat:
+            ContainedType = 17
+
+        class TextPlaceholder:
+            Type = 14
+            HasChart = False
+            HasSmartArt = False
+            HasDiagram = False
+
+        shape = TextPlaceholder()
+        shape.PlaceholderFormat = PlaceholderFormat()
+        self.assertFalse(_office_visual_candidate(shape))
+
+        shape.PlaceholderFormat.ContainedType = 1
+        self.assertFalse(_office_visual_candidate(shape))
+
+    def test_scanned_pdf_ocr_failure_must_not_fall_back_to_empty_parser(self) -> None:
+        class BrokenOcrParser:
+            name = "broken-ocr"
+
+            @staticmethod
+            def supports(document_type: str) -> bool:
+                return document_type == "pdf"
+
+            @staticmethod
+            def parse(source, output_dir, document_type):
+                raise ScannedPdfOcrError("OCR failed")
+
+        class UnsafeFallbackParser:
+            name = "unsafe-fallback"
+            called = False
+
+            @staticmethod
+            def supports(document_type: str) -> bool:
+                return document_type == "pdf"
+
+            def parse(self, source, output_dir, document_type):
+                self.called = True
+                raise AssertionError("scan must not use the empty fallback")
+
+        fallback = UnsafeFallbackParser()
+        parser = FallbackDocumentParser(BrokenOcrParser(), fallback)
+        with self.assertRaises(ScannedPdfOcrError):
+            parser.parse(Path("scan.pdf"), Path("output"), "pdf")
+        self.assertFalse(fallback.called)
+
+    def test_pdf_text_layer_routes_only_scans_to_force_ocr(self) -> None:
+        import pymupdf
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            digital = root / "digital.pdf"
+            scanned = root / "scanned.pdf"
+            document = pymupdf.open()
+            page = document.new_page()
+            page.insert_text((72, 72), "Selectable digital PDF text " * 3)
+            document.save(digital)
+            document.close()
+            document = pymupdf.open()
+            document.new_page()
+            document.save(scanned)
+            document.close()
+
+            self.assertFalse(OpenDataLoaderPdfSubprocessParser._requires_force_ocr(digital))
+            self.assertTrue(OpenDataLoaderPdfSubprocessParser._requires_force_ocr(scanned))
+
+            parser = OpenDataLoaderPdfSubprocessParser(Path(sys.executable))
+            digital_command = parser._hybrid_server_command(5002, False)
+            scanned_command = parser._hybrid_server_command(5003, True)
+            self.assertIn("hybrid_input.opendataloader_hybrid_server", scanned_command)
+            self.assertNotIn("--force-ocr", digital_command)
+            self.assertIn("--force-ocr", scanned_command)
+            self.assertIn("--ocr-engine", scanned_command)
+            self.assertIn("rapidocr", scanned_command)
+            self.assertIn("chinese", scanned_command)
+
+    def test_external_hybrid_server_can_import_project_launcher_from_project_cwd(self) -> None:
+        parser = OpenDataLoaderPdfSubprocessParser(Path(sys.executable))
+        package_root = Path(__file__).resolve().parents[1]
+        project_cwd = package_root / "PixelRAG-Studio-Data" / "projects" / "test-project"
+        environment = os.environ.copy()
+        environment["PYTHONPATH"] = os.pathsep.join(
+            value
+            for value in (str(package_root), environment.get("PYTHONPATH", ""))
+            if value
+        )
+        result = subprocess.run(
+            [
+                str(parser.python_executable),
+                "-X", "utf8",
+                "-c",
+                "import hybrid_input.opendataloader_hybrid_server; print('import-ok')",
+            ],
+            cwd=project_cwd if project_cwd.is_dir() else package_root,
+            env=environment,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("import-ok", result.stdout)
+
+    def test_page_sized_pdf_visual_is_not_final_region_evidence(self) -> None:
+        page_visual = Artifact(
+            "page", "visual",
+            Provenance("scan.pdf", page=1, bbox=[0.0137, 0.0, 0.9859, 1.001]),
+            visual_type="image",
+        )
+        text = Artifact(
+            "text", "text", Provenance("scan.pdf", page=1),
+            text="OCR recovered meaningful page text",
+        )
+        fallback = Artifact(
+            "fallback", "visual",
+            Provenance("scan.pdf", page=2, bbox=[0.0137, 0.0, 0.9859, 1.001]),
+            visual_type="image",
+        )
+
+        _classify_page_sized_visuals([page_visual, text, fallback])
+
+        self.assertEqual(page_visual.visual_type, "background")
+        self.assertFalse(page_visual.metadata["indexable"])
+        self.assertFalse(page_visual.metadata["llm_eligible"])
+        self.assertEqual(fallback.metadata["visual_role"], "page_visual")
+        self.assertTrue(fallback.metadata["coarse_only"])
+        self.assertFalse(fallback.metadata["llm_eligible"])
+
     def test_missing_index_time_visual_asset_does_not_abort_document(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             artifact = Artifact(
@@ -354,6 +585,52 @@ class HybridInputSmokeTests(unittest.TestCase):
             visual = next(item for item in bundle.artifacts if item.kind == "image")
             self.assertEqual(Path(visual.asset_path or ""), native.resolve())
             self.assertEqual(visual.metadata["office_render_method"], "word-copy-as-picture")
+
+    def test_word_inline_bounds_follow_common_rendered_baseline(self) -> None:
+        visuals = [
+            {
+                "collection": "InlineShapes", "page": 1,
+                "paragraph_start": 0, "line_number": 1,
+                "bounds_points": [72.0, 72.0, 144.0, 144.0],
+            },
+            {
+                "collection": "InlineShapes", "page": 1,
+                "paragraph_start": 0, "line_number": 1,
+                "bounds_points": [144.0, 72.0, 434.4, 289.8],
+            },
+            {
+                "collection": "InlineShapes", "page": 1,
+                "paragraph_start": 0, "line_number": 1,
+                "bounds_points": [435.0, 72.0, 507.0, 144.0],
+            },
+        ]
+
+        _correct_word_inline_bounds(visuals)
+
+        self.assertEqual(visuals[0]["bounds_points"], [72.0, 217.8, 144.0, 289.8])
+        self.assertEqual(visuals[1]["bounds_points"], [144.0, 72.0, 434.4, 289.8])
+        self.assertEqual(visuals[2]["bounds_points"], [435.0, 217.8, 507.0, 289.8])
+        self.assertEqual(visuals[2]["bounds_adjustment"], "word-inline-baseline")
+        self.assertEqual(visuals[2]["reported_bounds_points"], [435.0, 72.0, 507.0, 144.0])
+
+    def test_word_inline_bounds_do_not_mix_separate_lines(self) -> None:
+        visuals = [
+            {
+                "collection": "InlineShapes", "page": 1,
+                "paragraph_start": 0, "line_number": 1,
+                "bounds_points": [72.0, 72.0, 144.0, 144.0],
+            },
+            {
+                "collection": "InlineShapes", "page": 1,
+                "paragraph_start": 0, "line_number": 2,
+                "bounds_points": [72.0, 72.0, 200.0, 200.0],
+            },
+        ]
+
+        _correct_word_inline_bounds(visuals)
+
+        self.assertEqual(visuals[0]["bounds_points"], [72.0, 72.0, 144.0, 144.0])
+        self.assertEqual(visuals[1]["bounds_points"], [72.0, 72.0, 200.0, 200.0])
 
     def test_word_visual_without_object_text_does_not_borrow_adjacent_text(self) -> None:
         visual = Artifact(

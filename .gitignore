@@ -34,5 +34,7 @@ retrieval-acceptance/
 visual_index_sourse/
 
 # Editor and operating-system noise
+.codex-tmp/
+tmp/
 .DS_Store
 Thumbs.db

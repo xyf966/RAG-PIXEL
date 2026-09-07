@@ -1,9 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
+from PyInstaller.utils.hooks import collect_submodules
 from PyInstaller.utils.hooks import collect_all
 
-datas = []
+datas = [('C:/Users/XEE8SZH/Desktop/多模态输入/hybrid_input', 'hybrid_input')]
 binaries = [('C:/Users/XEE8SZH/Desktop/多模态输入/vendor/poppler/pdftoppm.exe', 'poppler'), ('C:/Users/XEE8SZH/Desktop/多模态输入/vendor/poppler/pdfinfo.exe', 'poppler')]
 hiddenimports = ['PIL.ImageTk', 'pypdfium2', 'pixelrag_embed.embed_cpu', 'pixelrag_embed.chunk', 'pixelrag_embed.index', 'pixelrag_index.sources.local', 'transformers.models.qwen3_vl.configuration_qwen3_vl', 'transformers.models.qwen3_vl.modeling_qwen3_vl', 'transformers.models.qwen3_vl.processing_qwen3_vl', 'transformers.models.qwen3_vl.image_processing_qwen3_vl', 'transformers.models.qwen3_vl.video_processing_qwen3_vl']
+hiddenimports += collect_submodules('hybrid_input')
 tmp_ret = collect_all('pixelrag')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('pixelrag_render')
