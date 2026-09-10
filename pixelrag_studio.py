@@ -27,7 +27,8 @@ SUPPORTED = {
     ".md", ".txt", ".html", ".htm",
 }
 DEFAULT_MODEL = "Qwen/Qwen3-VL-Embedding-2B"
-DEFAULT_OLLAMA_MODEL = "qwen3:8b"
+DEFAULT_BAILIAN_MODEL = "qwen-plus"
+DEFAULT_BAILIAN_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
 
 def _configure_console_output() -> None:
@@ -393,7 +394,7 @@ class StudioApp:
         self.search_engine = None
         self.search_busy = False
         self.answer_busy = False
-        self.ollama_probe_busy = False
+        self.bailian_probe_busy = False
         self.last_retrieval_response = None
         self.preview_image = None
         self.evidence_images: list[Any] = []
@@ -407,11 +408,14 @@ class StudioApp:
         self.status_text = tk.StringVar(value="就绪：请创建或打开项目")
         self.query_text = tk.StringVar()
         self.top_k = tk.IntVar(value=10)
-        self.ollama_model = tk.StringVar(
-            value=os.environ.get("PIXELRAG_OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL)
+        self.bailian_model = tk.StringVar(
+            value=os.environ.get("PIXELRAG_BAILIAN_MODEL", DEFAULT_BAILIAN_MODEL)
         )
-        self.ollama_base_url = tk.StringVar(
-            value=os.environ.get("PIXELRAG_OLLAMA_BASE_URL", "http://127.0.0.1:11434")
+        self.bailian_base_url = tk.StringVar(
+            value=os.environ.get("PIXELRAG_BAILIAN_BASE_URL", DEFAULT_BAILIAN_BASE_URL)
+        )
+        self.bailian_api_key = tk.StringVar(
+            value=os.environ.get("DASHSCOPE_API_KEY", "")
         )
         self.send_visual_assets = tk.BooleanVar(value=False)
         self.force_rebuild = tk.BooleanVar(value=False)
@@ -569,27 +573,27 @@ class StudioApp:
         self.result_meta = ttk.Label(result_right, text="", wraplength=520, foreground="#374151")
         self.result_meta.pack(fill="x", pady=(8, 0))
 
-        answer_settings = ttk.LabelFrame(answer_tab, text="Ollama 回答模型", padding=10)
+        answer_settings = ttk.LabelFrame(answer_tab, text="阿里云百炼回答模型", padding=10)
         answer_settings.pack(fill="x")
         ttk.Label(answer_settings, text="模型").grid(row=0, column=0, sticky="w")
-        self.ollama_model_combo = ttk.Combobox(
+        self.bailian_model_combo = ttk.Combobox(
             answer_settings,
-            textvariable=self.ollama_model,
+            textvariable=self.bailian_model,
             width=36,
         )
-        self.ollama_model_combo.grid(row=0, column=1, sticky="ew", padx=(6, 12))
-        ttk.Label(answer_settings, text="服务地址").grid(row=0, column=2, sticky="w")
+        self.bailian_model_combo.grid(row=0, column=1, sticky="ew", padx=(6, 12))
+        ttk.Label(answer_settings, text="API 地址").grid(row=0, column=2, sticky="w")
         ttk.Entry(
             answer_settings,
-            textvariable=self.ollama_base_url,
+            textvariable=self.bailian_base_url,
             width=30,
         ).grid(row=0, column=3, sticky="ew", padx=(6, 12))
-        self.ollama_probe_button = ttk.Button(
+        self.bailian_probe_button = ttk.Button(
             answer_settings,
-            text="检测模型",
-            command=self._probe_ollama_models,
+            text="连接测试",
+            command=self._probe_bailian_models,
         )
-        self.ollama_probe_button.grid(row=0, column=4, padx=(0, 8))
+        self.bailian_probe_button.grid(row=0, column=4, padx=(0, 8))
         self.answer_button = ttk.Button(
             answer_settings,
             text="基于当前检索结果生成回答",
@@ -599,14 +603,25 @@ class StudioApp:
         self.answer_button.grid(row=0, column=5)
         ttk.Checkbutton(
             answer_settings,
-            text="向支持视觉的 Ollama 模型发送图片",
+            text="向支持视觉的百炼模型发送图片",
             variable=self.send_visual_assets,
-        ).grid(row=1, column=1, columnspan=3, sticky="w", pady=(8, 0))
+        ).grid(row=2, column=1, columnspan=3, sticky="w", pady=(8, 0))
+        ttk.Label(answer_settings, text="API Key").grid(row=1, column=0, sticky="w", pady=(8, 0))
+        ttk.Entry(
+            answer_settings,
+            textvariable=self.bailian_api_key,
+            show="●",
+        ).grid(row=1, column=1, columnspan=3, sticky="ew", padx=(6, 12), pady=(8, 0))
+        ttk.Label(
+            answer_settings,
+            text="也可通过 DASHSCOPE_API_KEY 环境变量提供；不会写入日志。",
+            foreground="#6b7280",
+        ).grid(row=1, column=4, columnspan=2, sticky="w", pady=(8, 0))
         ttk.Label(
             answer_settings,
             text="回答只使用通过筛选的证据；引用校验失败会自动修复一次，仍失败则不输出答案。",
             foreground="#6b7280",
-        ).grid(row=1, column=3, columnspan=3, sticky="e", pady=(8, 0))
+        ).grid(row=2, column=3, columnspan=3, sticky="e", pady=(8, 0))
         answer_settings.columnconfigure(1, weight=2)
         answer_settings.columnconfigure(3, weight=1)
 
@@ -651,7 +666,7 @@ class StudioApp:
             "Qwen3-VL-Embedding-2B 统一向量 → 三通道 FAISS 索引快照。\n\n"
             "Office 临时 PDF 只负责页面坐标补全和复杂视觉对象渲染；文字和表格不会进入 Pixel。\n\n"
             "当前构建和检索固定使用 CPU，以保证无独立显卡的 Windows 电脑也能运行。\n\n"
-            "证据回答层通过本机 Ollama 筛选证据、生成结构化主张，并执行强制引用校验。"
+            "证据回答层通过阿里云百炼 API 生成结构化主张，并执行强制引用校验。"
         )
         ttk.Label(about_tab, text=about, wraplength=760, justify="left", font=("Segoe UI", 11)).pack(anchor="nw")
         ttk.Label(
@@ -942,8 +957,9 @@ class StudioApp:
             args=(
                 query,
                 top_k,
-                self.ollama_model.get().strip(),
-                self.ollama_base_url.get().strip(),
+                self.bailian_model.get().strip(),
+                self.bailian_base_url.get().strip(),
+                self.bailian_api_key.get().strip(),
             ),
             daemon=True,
         ).start()
@@ -952,12 +968,13 @@ class StudioApp:
         self,
         query: str,
         top_k: int,
-        ollama_model: str,
-        ollama_base_url: str,
+        bailian_model: str,
+        bailian_base_url: str,
+        bailian_api_key: str,
     ) -> None:
         created_engine = None
         try:
-            from hybrid_input.answering import OllamaChatClient
+            from hybrid_input.answering import BailianChatClient
             from hybrid_input.retrieval import LLMEnglishQueryExpander
             from hybrid_input.retrieval_contracts import RetrievalRequest
 
@@ -969,11 +986,12 @@ class StudioApp:
                 created_engine = HybridSearchEngine(self.project_dir / "index", device="cpu")
                 engine = created_engine
             query_expander = None
-            if ollama_model:
+            if bailian_model and bailian_api_key:
                 query_expander = LLMEnglishQueryExpander(
-                    OllamaChatClient(
-                        ollama_model,
-                        base_url=ollama_base_url or "http://127.0.0.1:11434",
+                    BailianChatClient(
+                        bailian_model,
+                        api_key=bailian_api_key,
+                        base_url=bailian_base_url or DEFAULT_BAILIAN_BASE_URL,
                         timeout_seconds=45.0,
                     )
                 )
@@ -1000,31 +1018,38 @@ class StudioApp:
                 created_engine.close()
             self.search_events.put(("search_error", str(exc)))
 
-    def _probe_ollama_models(self) -> None:
-        if self.ollama_probe_busy:
+    def _probe_bailian_models(self) -> None:
+        if self.bailian_probe_busy:
             return
-        self.ollama_probe_busy = True
-        self.ollama_probe_button.configure(state="disabled")
-        self.status_text.set("正在连接本机 Ollama 并读取模型列表……")
-        base_url = self.ollama_base_url.get().strip() or "http://127.0.0.1:11434"
+        api_key = self.bailian_api_key.get().strip()
+        if not api_key:
+            from tkinter import messagebox
+
+            messagebox.showwarning(APP_NAME, "请输入百炼 API Key，或设置 DASHSCOPE_API_KEY。")
+            return
+        self.bailian_probe_busy = True
+        self.bailian_probe_button.configure(state="disabled")
+        self.status_text.set("正在连接阿里云百炼并读取模型列表……")
+        base_url = self.bailian_base_url.get().strip() or DEFAULT_BAILIAN_BASE_URL
         threading.Thread(
-            target=self._probe_ollama_models_thread,
-            args=(base_url,),
+            target=self._probe_bailian_models_thread,
+            args=(base_url, api_key),
             daemon=True,
         ).start()
 
-    def _probe_ollama_models_thread(self, base_url: str) -> None:
+    def _probe_bailian_models_thread(self, base_url: str, api_key: str) -> None:
         try:
-            from hybrid_input.answering import OllamaChatClient
+            from hybrid_input.answering import BailianChatClient
 
-            client = OllamaChatClient(
-                "model-probe",
+            client = BailianChatClient(
+                self.bailian_model.get().strip() or DEFAULT_BAILIAN_MODEL,
+                api_key=api_key,
                 base_url=base_url,
                 timeout_seconds=8.0,
             )
-            self.search_events.put(("ollama_models", client.list_models()))
+            self.search_events.put(("bailian_models", client.list_models()))
         except Exception as exc:
-            self.search_events.put(("ollama_error", str(exc)))
+            self.search_events.put(("bailian_error", str(exc)))
 
     def _generate_answer(self) -> None:
         from tkinter import messagebox
@@ -1034,21 +1059,25 @@ class StudioApp:
         if self.last_retrieval_response is None:
             messagebox.showwarning(APP_NAME, "请先在检索检查器中完成一次搜索。")
             return
-        model = self.ollama_model.get().strip()
+        model = self.bailian_model.get().strip()
         if not model:
-            messagebox.showwarning(APP_NAME, "请选择或输入一个 Ollama 回答模型。")
-            self.ollama_model_combo.focus_set()
+            messagebox.showwarning(APP_NAME, "请选择或输入一个百炼回答模型。")
+            self.bailian_model_combo.focus_set()
             return
+        api_key = self.bailian_api_key.get().strip()
+        if not api_key:
+            messagebox.showwarning(APP_NAME, "请输入百炼 API Key，或设置 DASHSCOPE_API_KEY。")
+            return
+        retrieval_response = self.last_retrieval_response
         self.answer_busy = True
         self._set_answer_controls()
         self._set_answer_text("正在筛选证据并生成回答……")
         self.answer_citations.delete(0, self.tk.END)
-        self.status_text.set("正在通过 Ollama 筛选证据、生成回答并校验引用……")
-        retrieval_response = self.last_retrieval_response
+        self.status_text.set("正在通过阿里云百炼生成回答并校验引用……")
         send_visual_assets = bool(self.send_visual_assets.get())
         threading.Thread(
             target=self._answer_thread,
-            args=(model, self.ollama_base_url.get().strip(), retrieval_response, send_visual_assets),
+            args=(model, self.bailian_base_url.get().strip(), api_key, retrieval_response, send_visual_assets, self.project_dir),
             daemon=True,
         ).start()
 
@@ -1056,8 +1085,10 @@ class StudioApp:
         self,
         model: str,
         base_url: str,
+        api_key: str,
         retrieval_response: Any,
         send_visual_assets: bool,
+        trace_project_dir: Path | None = None,
     ) -> None:
         try:
             from hybrid_input.answering import AnswerEngine
@@ -1065,17 +1096,41 @@ class StudioApp:
 
             if retrieval_response is None:
                 raise RuntimeError("当前没有可用的检索响应")
-            engine = AnswerEngine.for_ollama(
+            engine = AnswerEngine.for_bailian(
                 model,
-                base_url=base_url or "http://127.0.0.1:11434",
+                api_key=api_key,
+                base_url=base_url or DEFAULT_BAILIAN_BASE_URL,
                 send_visual_assets=send_visual_assets,
             )
-            response = engine.answer(
-                AnswerRequest(
-                    query_text=retrieval_response.query_text,
-                    retrieval_response=retrieval_response,
-                )
+            request = AnswerRequest(
+                query_text=retrieval_response.query_text,
+                retrieval_response=retrieval_response,
             )
+            response = engine.answer(request)
+            # Capture the actual run locally so recall, filtering and budgeting can
+            # be distinguished without rerunning a nondeterministic model request.
+            if trace_project_dir is not None:
+                try:
+                    from dataclasses import asdict
+
+                    trace_dir = trace_project_dir / "logs" / "answers"
+                    trace_dir.mkdir(parents=True, exist_ok=True)
+                    trace_path = trace_dir / f"answer-{datetime.now():%Y%m%d-%H%M%S-%f}.json"
+                    trace = {
+                        "model": model,
+                        "send_visual_assets": send_visual_assets,
+                        "max_evidence_items": request.max_evidence_items,
+                        "max_evidence_chars": request.max_evidence_chars,
+                        "retrieval": retrieval_response.to_dict(),
+                        "candidates": [asdict(item) for item in engine.normalizer.normalize(request)],
+                        "selector_response": getattr(engine.selector, "last_response", None),
+                        "generator_response": getattr(engine.generator, "last_response", None),
+                        "answer": response.to_dict(),
+                    }
+                    with trace_path.open("x", encoding="utf-8") as handle:
+                        json.dump(trace, handle, ensure_ascii=False, indent=2)
+                except Exception as exc:
+                    response.warnings.append(f"本地问答诊断记录保存失败：{exc}")
             self.search_events.put(("answer_results", response.to_dict()))
         except Exception as exc:
             self.search_events.put(("answer_error", str(exc)))
@@ -1345,22 +1400,22 @@ class StudioApp:
                 self.log_text.see(self.tk.END)
                 self.status_text.set(f"回答生成失败：{payload}")
                 self.notebook.select(self.answer_tab)
-            elif event == "ollama_models" and isinstance(payload, list):
-                self.ollama_probe_busy = False
-                self.ollama_probe_button.configure(state="normal")
+            elif event == "bailian_models" and isinstance(payload, list):
+                self.bailian_probe_busy = False
+                self.bailian_probe_button.configure(state="normal")
                 models = [str(value) for value in payload if str(value).strip()]
-                self.ollama_model_combo.configure(values=models)
-                if models and not self.ollama_model.get().strip():
-                    self.ollama_model.set(models[0])
+                self.bailian_model_combo.configure(values=models)
+                if models and not self.bailian_model.get().strip():
+                    self.bailian_model.set(models[0])
                 self.status_text.set(
-                    f"Ollama 已连接：发现 {len(models)} 个模型"
+                    f"百炼已连接：发现 {len(models)} 个可用模型"
                     if models
-                    else "Ollama 已连接，但没有发现已安装模型"
+                    else "百炼已连接，但接口未返回可用模型"
                 )
-            elif event == "ollama_error":
-                self.ollama_probe_busy = False
-                self.ollama_probe_button.configure(state="normal")
-                self.status_text.set(f"Ollama 连接失败：{payload}")
+            elif event == "bailian_error":
+                self.bailian_probe_busy = False
+                self.bailian_probe_button.configure(state="normal")
+                self.status_text.set(f"百炼连接失败：{payload}")
             else:
                 self.search_busy = False
                 self._set_search_controls(self._index_ready())

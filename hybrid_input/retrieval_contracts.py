@@ -209,6 +209,7 @@ class RetrievalResponse:
     hits: list[RetrievalHit]
     searched_modalities: list[str]
     elapsed_ms: float
+    query_variants: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -228,6 +229,12 @@ class RetrievalResponse:
         self.elapsed_ms = float(self.elapsed_ms)
         if not math.isfinite(self.elapsed_ms) or self.elapsed_ms < 0:
             raise ValueError("elapsed_ms must be a finite non-negative value")
+        if not isinstance(self.query_variants, list):
+            raise TypeError("query_variants must be a list of strings")
+        self.query_variants = _unique_required_values(
+            self.query_variants or [self.query_text],
+            "query_variants",
+        )
         if not isinstance(self.warnings, list):
             raise TypeError("warnings must be a list of strings")
         self.warnings = [
@@ -242,5 +249,6 @@ class RetrievalResponse:
             "hits": [hit.to_dict() for hit in self.hits],
             "searched_modalities": list(self.searched_modalities),
             "elapsed_ms": self.elapsed_ms,
+            "query_variants": list(self.query_variants),
             "warnings": list(self.warnings),
         }

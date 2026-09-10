@@ -1354,6 +1354,33 @@ class EvidenceAssembler:
                 related_count += 1
                 selected_in_container += 1
                 modality_counts[modality] = modality_counts.get(modality, 0) + 1
+        # Keep verifiable page text alongside tables, without inferring ownership
+        # merely from co-location (a page may describe multiple products).
+        for block in blocks:
+            if block.get("modality") != "table":
+                continue
+            container = self._container(block)
+            if container is None or container[0] != "page":
+                continue
+            page_text = [
+                row for row in snapshot.metadata["text"]
+                if row.get("document_id") == document_id and self._container(row) == container
+            ]
+            page_text.sort(key=lambda row: (
+                (self._bbox(row) or (0.0, math.inf, 0.0, 0.0))[1],
+                str(row.get("record_id") or ""),
+            ))
+            excerpts = [
+                f"同页文本记录 {row.get('record_id')}：\n{EvidenceExpander._text(row)[:1800]}"
+                for row in page_text[:3] if EvidenceExpander._text(row)
+            ]
+            if excerpts:
+                block["context"] = "\n\n".join(filter(None, [
+                    str(block.get("context") or ""),
+                    "以下为同文档同页的原文节选，仅供核对型号、标题和条件；"
+                    "同页不等于同一对象，不得自动归属。",
+                    *excerpts,
+                ]))
         blocks.sort(key=self._sort_key)
         return blocks
 
@@ -1489,6 +1516,7 @@ class HybridSearchEngine:
                     query_warnings.append(
                         f"Bilingual query expansion unavailable; used original query: {exc}"
                     )
+            semantic_query = "\n".join(query_variants)
             vector_result = self.vector_retriever.search(request, query_variants)
             coarse_k = max(
                 request.top_k,
@@ -1505,13 +1533,13 @@ class HybridSearchEngine:
                 adjacent_context, context_pages = self.evidence_expander.expand(
                     ranked_result.snapshot,
                     item.candidate,
-                    request.query_text,
+                    semantic_query,
                 )
                 evidence_blocks = self.evidence_assembler.assemble(
                     ranked_result.snapshot,
                     item.candidate,
                     adjacent_context,
-                    request.query_text,
+                    semantic_query,
                 )
                 hits.append(
                     self._hit(
@@ -1530,6 +1558,7 @@ class HybridSearchEngine:
                 hits=hits,
                 searched_modalities=list(request.modalities),
                 elapsed_ms=elapsed_ms,
+                query_variants=list(query_variants),
                 warnings=(
                     self._warnings(ranked_result.snapshot, request.modalities)
                     + query_warnings

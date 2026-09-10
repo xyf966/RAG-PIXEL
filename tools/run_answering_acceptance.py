@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -9,14 +10,18 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from hybrid_input.answering import AnswerEngine
-from hybrid_input.answering import LLMEvidenceSelector, LLMAnswerGenerator, OllamaChatClient
+from hybrid_input.answering import (
+    AnswerEngine,
+    BailianChatClient,
+    LLMAnswerGenerator,
+    RetrievalEvidenceSelector,
+)
 from hybrid_input.answering_contracts import AnswerRequest, AnswerStatus
 from hybrid_input.retrieval_contracts import RetrievalHit, RetrievalResponse
 
 
 class RecordingClient:
-    def __init__(self, client: OllamaChatClient) -> None:
+    def __init__(self, client: BailianChatClient) -> None:
         self.client = client
         self.responses: list[dict[str, object]] = []
 
@@ -29,7 +34,7 @@ class RecordingClient:
 def _fixture() -> RetrievalResponse:
     return RetrievalResponse(
         query_text="2025年销售额是多少，是否达到年度目标？",
-        snapshot_build_id="ollama-answering-acceptance",
+        snapshot_build_id="bailian-answering-acceptance",
         hits=[
             RetrievalHit(
                 rank=1,
@@ -81,20 +86,30 @@ def main() -> int:
     reconfigure = getattr(sys.stdout, "reconfigure", None)
     if reconfigure is not None:
         reconfigure(encoding="utf-8", errors="backslashreplace")
-    parser = argparse.ArgumentParser(description="Run a real Ollama answering acceptance test")
-    parser.add_argument("--model", default="qwen3:8b")
-    parser.add_argument("--base-url", default="http://127.0.0.1:11434")
+    parser = argparse.ArgumentParser(description="Run a real Bailian answering acceptance test")
+    parser.add_argument("--model", default=os.environ.get("PIXELRAG_BAILIAN_MODEL", "qwen-plus"))
+    parser.add_argument(
+        "--base-url",
+        default=os.environ.get(
+            "PIXELRAG_BAILIAN_BASE_URL",
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        ),
+    )
+    parser.add_argument("--api-key", default=os.environ.get("DASHSCOPE_API_KEY"))
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
+    if not args.api_key:
+        parser.error("--api-key or DASHSCOPE_API_KEY is required")
 
     retrieval = _fixture()
-    client = RecordingClient(OllamaChatClient(
+    client = RecordingClient(BailianChatClient(
         args.model,
+        api_key=args.api_key,
         base_url=args.base_url,
         timeout_seconds=600.0,
     ))
     result = AnswerEngine(
-        LLMEvidenceSelector(client),
+        RetrievalEvidenceSelector(),
         LLMAnswerGenerator(client),
     ).answer(AnswerRequest(retrieval.query_text, retrieval))
     payload = result.to_dict()

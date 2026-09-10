@@ -5,7 +5,7 @@ implementations consume that stable contract but are not part of ingestion.
 """
 
 from .contracts import Artifact, ArtifactBundle, HybridDocument, Provenance, VisionResult
-from .answering import AnswerEngine, OllamaChatClient
+from .answering import AnswerEngine, BailianChatClient, OllamaChatClient
 from .answering_contracts import (
     AnswerClaim,
     AnswerRequest,
@@ -34,6 +34,7 @@ __all__ = [
     "AnswerRequest",
     "AnswerResponse",
     "AnswerStatus",
+    "BailianChatClient",
     "Citation",
     "EvidenceDecision",
     "EvidenceItem",
