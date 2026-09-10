@@ -1,0 +1,1490 @@
+from __future__ import annotations
+
+import base64
+import importlib
+import json
+import multiprocessing
+import os
+import queue
+import shutil
+import socket
+import subprocess
+import sys
+import threading
+import time
+import urllib.error
+import urllib.request
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+
+APP_NAME = "PixelRAG Studio"
+APP_VERSION = "0.2.0"
+SUPPORTED = {
+    ".pdf", ".doc", ".docx", ".docm", ".ppt", ".pptx", ".pptm",
+    ".xls", ".xlsx", ".xlsm", ".png", ".jpg", ".jpeg", ".webp",
+    ".md", ".txt", ".html", ".htm",
+}
+DEFAULT_MODEL = "Qwen/Qwen3-VL-Embedding-2B"
+DEFAULT_BAILIAN_MODEL = "qwen-plus"
+DEFAULT_BAILIAN_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
+
+def _configure_console_output() -> None:
+    """Prevent third-party diagnostics from crashing on a legacy Windows code page."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(errors="backslashreplace")
+        except (OSError, ValueError):
+            pass
+
+
+def _format_retrieval_location(provenance: dict[str, Any] | None) -> str:
+    provenance = provenance or {}
+    parts: list[str] = []
+    if provenance.get("page") is not None:
+        parts.append(f"第 {provenance['page']} 页")
+    if provenance.get("slide") is not None:
+        parts.append(f"幻灯片 {provenance['slide']}")
+    if provenance.get("sheet"):
+        parts.append(f"工作表 {provenance['sheet']}")
+    if provenance.get("cell_range"):
+        parts.append(str(provenance["cell_range"]))
+    if not parts and provenance.get("locator"):
+        parts.append(str(provenance["locator"]))
+    return " / ".join(parts) or "未标注位置"
+
+
+def _format_retrieval_content(hit: dict[str, Any]) -> str:
+    content = hit.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, dict):
+        if hit.get("modality") == "text" and isinstance(content.get("text"), str):
+            primary = content["text"]
+            additions = []
+            for adjacent in hit.get("adjacent_context") or []:
+                adjacent_content = adjacent.get("content")
+                text = adjacent_content.get("text") if isinstance(adjacent_content, dict) else adjacent_content
+                if not isinstance(text, str) or not text.strip():
+                    continue
+                location = _format_retrieval_location(adjacent.get("provenance"))
+                additions.append(f"\n\n--- 邻接上下文（{location}）---\n{text}")
+            return primary + "".join(additions)
+        if hit.get("modality") == "table":
+            for key in ("raw", "markdown", "text"):
+                if isinstance(content.get(key), str) and content[key].strip():
+                    return content[key]
+        return json.dumps(content, ensure_ascii=False, indent=2)
+    context = hit.get("context")
+    if isinstance(context, str) and context.strip():
+        return context
+    return json.dumps(content, ensure_ascii=False, indent=2) if content is not None else "无可显示内容"
+
+
+def _format_evidence_block_content(block: dict[str, Any]) -> str:
+    content = block.get("content")
+    modality = block.get("modality")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, dict):
+        if modality == "text" and isinstance(content.get("text"), str):
+            return content["text"]
+        if modality == "table":
+            for key in ("raw", "markdown", "text"):
+                if isinstance(content.get(key), str) and content[key].strip():
+                    return content[key]
+        if modality == "visual" and isinstance(content.get("context"), str):
+            return content["context"]
+        return json.dumps(content, ensure_ascii=False, indent=2)
+    context = block.get("context")
+    return context if isinstance(context, str) and context.strip() else ""
+
+
+def _format_evidence_block_header(block: dict[str, Any]) -> str:
+    role_labels = {"core": "核心", "neighbor": "邻接", "related": "同页关联"}
+    role = role_labels.get(str(block.get("role") or ""), "证据")
+    modality = str(block.get("modality") or "unknown").upper()
+    location = _format_retrieval_location(block.get("provenance"))
+    return f"[{role} · {modality} · {location}]"
+
+
+def _format_retrieval_hit_label(hit: dict[str, Any]) -> str:
+    source = Path(str(hit.get("source_path") or "未知文档")).name
+    modality = str(hit.get("modality") or "unknown").upper()
+    pages = hit.get("context_pages") or []
+    if len(pages) > 1:
+        location = (
+            f"{_format_retrieval_location(hit.get('provenance'))} / "
+            f"上下文 第 {pages[0]}–{pages[-1]} 页"
+        )
+    else:
+        location = _format_retrieval_location(hit.get("provenance"))
+    return (
+        f"{int(hit.get('rank', 0)):02d}  [{modality:<6}]  "
+        f"融合 {float(hit.get('fusion_score', 0)):.5f}  "
+        f"原始 {float(hit.get('raw_score', 0)):.5f}  {source}  {location}"
+    )
+
+
+def _format_answer_citation_label(citation: dict[str, Any]) -> str:
+    evidence_id = str(citation.get("evidence_id") or "E???")
+    source = Path(str(citation.get("source_path") or "未知文档")).name
+    modality = str(citation.get("modality") or "unknown").upper()
+    location = _format_retrieval_location(citation.get("provenance"))
+    return f"[{evidence_id}]  {source}  ·  {location}  ·  {modality}"
+
+
+def _format_answer_response(response: dict[str, Any]) -> str:
+    answer = str(response.get("answer_text") or "").strip()
+    limitations = [
+        str(value).strip() for value in response.get("limitations") or [] if str(value).strip()
+    ]
+    warnings = [
+        str(value).strip() for value in response.get("warnings") or [] if str(value).strip()
+    ]
+    sections = [answer] if answer else []
+    if limitations:
+        sections.append("限制：\n- " + "\n- ".join(limitations))
+    if warnings:
+        sections.append("诊断：\n- " + "\n- ".join(warnings))
+    return "\n\n".join(sections) or "没有可显示的回答。"
+
+
+def _format_answer_diagnostics(response: dict[str, Any]) -> str:
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    query = str(response.get("query_text") or "").strip()
+    status = str(response.get("status") or "unknown")
+    elapsed = float(response.get("elapsed_ms") or 0.0)
+    lines = [
+        f"\n[{timestamp}] Answer trace",
+        f"query={query!r} status={status} elapsed_ms={elapsed:.0f}",
+    ]
+    for decision in response.get("decisions") or []:
+        if not isinstance(decision, dict):
+            continue
+        rationale = " ".join(str(decision.get("rationale") or "").split())[:180]
+        lines.append(
+            "decision "
+            f"{decision.get('evidence_id', 'E???')} "
+            f"relevant={bool(decision.get('relevant'))} "
+            f"support={decision.get('support_level', 'none')} "
+            f"score={float(decision.get('score') or 0.0):.2f} "
+            f"rationale={rationale!r}"
+        )
+    for index, claim in enumerate(response.get("claims") or [], start=1):
+        if not isinstance(claim, dict):
+            continue
+        text = " ".join(str(claim.get("text") or "").split())[:240]
+        evidence_ids = ",".join(str(value) for value in claim.get("evidence_ids") or [])
+        lines.append(f"claim {index} evidence=[{evidence_ids}] text={text!r}")
+    for warning in response.get("warnings") or []:
+        lines.append(f"warning={str(warning)!r}")
+    for limitation in response.get("limitations") or []:
+        lines.append(f"limitation={str(limitation)!r}")
+    return "\n".join(lines) + "\n"
+
+
+def _runtime_root() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+def _data_root() -> Path:
+    override = os.environ.get("PIXELRAG_STUDIO_HOME")
+    if override:
+        return Path(override).expanduser().resolve()
+    return _runtime_root() / "PixelRAG-Studio-Data"
+
+
+def _default_model() -> str:
+    root = _runtime_root()
+    candidates = (
+        root / "models" / "Qwen3-VL-Embedding-2B",
+        root / "model-cache" / "Qwen3-VL-Embedding-2B",
+    )
+    for bundled in candidates:
+        if (bundled / "model.safetensors").exists() and (bundled / "config.json").exists():
+            return str(bundled)
+    return DEFAULT_MODEL
+
+
+def _redirect_worker_output() -> None:
+    try:
+        import truststore
+
+        truststore.inject_into_ssl()
+    except (ImportError, RuntimeError):
+        pass
+    log_path = os.environ.get("PIXELRAG_STUDIO_LOG")
+    if not log_path:
+        return
+    Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+    stream = open(log_path, "a", encoding="utf-8", buffering=1)
+    sys.stdout = stream
+    sys.stderr = stream
+
+
+def _safe_print(message: str) -> None:
+    """Keep worker diagnostics usable even under a legacy Windows code page."""
+    try:
+        print(message)
+    except UnicodeEncodeError:
+        encoding = getattr(sys.stdout, "encoding", None) or "ascii"
+        print(message.encode(encoding, errors="backslashreplace").decode(encoding))
+
+
+def _dispatch_module(module_name: str, args: list[str]) -> None:
+    _redirect_worker_output()
+    module = importlib.import_module(module_name)
+    sys.argv = [module_name, *args]
+    if not hasattr(module, "main"):
+        raise RuntimeError(f"Module {module_name} has no main()")
+    module.main()
+
+
+def _install_pymupdf_pdf_renderer() -> None:
+    """Use the bundled Python PDF renderer instead of an external Poppler install."""
+    import pymupdf as fitz
+    from PIL import Image
+    import pdf2image
+
+    def convert_from_path(
+        pdf_path: str,
+        dpi: int = 200,
+        first_page: int | None = None,
+        last_page: int | None = None,
+        **_kwargs: object,
+    ) -> list[Image.Image]:
+        document = fitz.open(pdf_path)
+        try:
+            start = max((first_page or 1) - 1, 0)
+            stop = min(last_page or document.page_count, document.page_count)
+            scale = dpi / 72.0
+            matrix = fitz.Matrix(scale, scale)
+            images: list[Image.Image] = []
+            for page_index in range(start, stop):
+                pixmap = document.load_page(page_index).get_pixmap(
+                    matrix=matrix,
+                    colorspace=fitz.csRGB,
+                    alpha=False,
+                )
+                images.append(
+                    Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
+                )
+            return images
+        finally:
+            document.close()
+
+    pdf2image.convert_from_path = convert_from_path
+
+
+def _worker_index(config_path: str, force: bool) -> None:
+    _redirect_worker_output()
+    import yaml
+
+    from hybrid_input.indexing import build_hybrid_index
+
+    config_file = Path(config_path).resolve()
+    config = yaml.safe_load(config_file.read_text(encoding="utf-8")) or {}
+    source_dir = Path(config["source"]["path"])
+    index_dir = Path(config["output"])
+    model = config.get("embed", {}).get("model") or DEFAULT_MODEL
+    device = config.get("embed", {}).get("device") or "cpu"
+    if force:
+        _safe_print("Forced rebuild requested")
+    else:
+        _safe_print("Incremental build requested; unchanged documents will be reused")
+    build_hybrid_index(
+        source_dir=source_dir,
+        artifacts_dir=config_file.parent / "artifacts",
+        index_dir=index_dir,
+        model=model,
+        device=device,
+        force=force,
+    )
+
+
+def _worker_serve(
+    index_dir: str,
+    tiles_dir: str,
+    articles_json: str,
+    model: str,
+    port: str,
+) -> None:
+    _redirect_worker_output()
+    from hybrid_input.indexing import serve_hybrid_index
+
+    del tiles_dir, articles_json
+    serve_hybrid_index(Path(index_dir), model, int(port), device="cpu")
+
+
+def _worker_hybrid(source_dir: str, artifacts_dir: str) -> None:
+    _redirect_worker_output()
+    from hybrid_input import build_default_pipeline
+
+    pipeline = build_default_pipeline()
+    failures: list[str] = []
+    sources = [
+        path for path in sorted(Path(source_dir).iterdir())
+        if path.is_file() and path.suffix.lower() in SUPPORTED
+    ]
+    print(f"Hybrid ingestion: {len(sources)} document(s)")
+    for source in sources:
+        try:
+            result = pipeline.ingest(source, Path(artifacts_dir))
+            visual_count = sum(item.kind == "visual" for item in result.artifacts)
+            print(
+                f"OK {source.name}: {len(result.artifacts)} blocks, "
+                f"{visual_count} visual regions (Pixel deferred to index)"
+            )
+        except Exception as exc:
+            failures.append(f"{source.name}: {exc}")
+            print(f"FAILED {source.name}: {exc}")
+    if failures:
+        raise RuntimeError("Hybrid ingestion failures: " + "; ".join(failures))
+
+
+def _run_worker_mode() -> bool:
+    if len(sys.argv) >= 3 and sys.argv[1] == "-m":
+        _dispatch_module(sys.argv[2], sys.argv[3:])
+        return True
+    if len(sys.argv) >= 3 and sys.argv[1] == "--worker-index":
+        _worker_index(sys.argv[2], "--force" in sys.argv[3:])
+        return True
+    if len(sys.argv) >= 7 and sys.argv[1] == "--worker-serve":
+        _worker_serve(*sys.argv[2:7])
+        return True
+    if len(sys.argv) >= 4 and sys.argv[1] == "--worker-hybrid":
+        _worker_hybrid(sys.argv[2], sys.argv[3])
+        return True
+    return False
+
+
+class StudioApp:
+    def __init__(self) -> None:
+        import tkinter as tk
+        from tkinter import ttk
+
+        _configure_console_output()
+        self.tk = tk
+        self.ttk = ttk
+        self.root = tk.Tk()
+        self.root.title(f"{APP_NAME} {APP_VERSION}")
+        self.root.geometry("1180x760")
+        self.root.minsize(980, 650)
+
+        self.data_root = _data_root()
+        self.projects_root = self.data_root / "projects"
+        self.model_cache = self.data_root / "models"
+        self.projects_root.mkdir(parents=True, exist_ok=True)
+        self.model_cache.mkdir(parents=True, exist_ok=True)
+
+        self.project_dir: Path | None = None
+        self.build_process: subprocess.Popen | None = None
+        self.ingest_process: subprocess.Popen | None = None
+        self.server_process: subprocess.Popen | None = None
+        self.server_port = 30001
+        self.server_is_ready = False
+        self.search_engine = None
+        self.search_busy = False
+        self.answer_busy = False
+        self.bailian_probe_busy = False
+        self.last_retrieval_response = None
+        self.preview_image = None
+        self.evidence_images: list[Any] = []
+        self._log_offset = 0
+        self._last_server_log_offset = 0
+        self._ingest_log_offset = 0
+        self.search_events: queue.Queue[tuple[str, object]] = queue.Queue()
+
+        self.project_name = tk.StringVar(value="我的视觉知识库")
+        self.model_name = tk.StringVar(value=_default_model())
+        self.status_text = tk.StringVar(value="就绪：请创建或打开项目")
+        self.query_text = tk.StringVar()
+        self.top_k = tk.IntVar(value=10)
+        self.bailian_model = tk.StringVar(
+            value=os.environ.get("PIXELRAG_BAILIAN_MODEL", DEFAULT_BAILIAN_MODEL)
+        )
+        self.bailian_base_url = tk.StringVar(
+            value=os.environ.get("PIXELRAG_BAILIAN_BASE_URL", DEFAULT_BAILIAN_BASE_URL)
+        )
+        self.bailian_api_key = tk.StringVar(
+            value=os.environ.get("DASHSCOPE_API_KEY", "")
+        )
+        self.send_visual_assets = tk.BooleanVar(value=False)
+        self.force_rebuild = tk.BooleanVar(value=False)
+
+        self._build_ui()
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.root.after(700, self._poll)
+
+    def _build_ui(self) -> None:
+        tk, ttk = self.tk, self.ttk
+        self.root.configure(bg="#f4f6f8")
+
+        header = ttk.Frame(self.root, padding=(18, 14))
+        header.pack(fill="x")
+        ttk.Label(header, text="PixelRAG Studio", font=("Segoe UI", 18, "bold")).pack(side="left")
+        ttk.Label(
+            header,
+            text="Hybrid 文档解析 / 多模态索引与检索检查",
+            foreground="#52606d",
+        ).pack(side="left", padx=(16, 0), pady=(5, 0))
+        ttk.Button(header, text="打开数据目录", command=self._open_data_root).pack(side="right")
+
+        body = ttk.Panedwindow(self.root, orient="horizontal")
+        body.pack(fill="both", expand=True, padx=16, pady=(0, 10))
+
+        left = ttk.Frame(body, padding=14)
+        right = ttk.Frame(body, padding=10)
+        body.add(left, weight=2)
+        body.add(right, weight=5)
+
+        project_box = ttk.LabelFrame(left, text="1. 项目", padding=10)
+        project_box.pack(fill="x")
+        ttk.Label(project_box, text="项目名称").pack(anchor="w")
+        ttk.Entry(project_box, textvariable=self.project_name).pack(fill="x", pady=(4, 8))
+        row = ttk.Frame(project_box)
+        row.pack(fill="x")
+        ttk.Button(row, text="创建/打开", command=self._create_project).pack(side="left", fill="x", expand=True)
+        ttk.Button(row, text="打开目录", command=self._open_project).pack(side="left", padx=(8, 0))
+
+        docs_box = ttk.LabelFrame(left, text="2. 文档", padding=10)
+        docs_box.pack(fill="both", expand=True, pady=10)
+        self.docs_list = tk.Listbox(docs_box, height=12, activestyle="none")
+        self.docs_list.pack(fill="both", expand=True)
+        doc_row = ttk.Frame(docs_box)
+        doc_row.pack(fill="x", pady=(8, 0))
+        ttk.Button(doc_row, text="添加文档", command=self._add_documents).pack(side="left", fill="x", expand=True)
+        ttk.Button(doc_row, text="移除", command=self._remove_document).pack(side="left", padx=(8, 0))
+
+        ingest_box = ttk.LabelFrame(left, text="3. Hybrid 输入解析", padding=10)
+        ingest_box.pack(fill="x", pady=(0, 10))
+        ttk.Label(
+            ingest_box,
+            text="文字/表格直接解析；图片和图表生成独立资产并保留来源坐标。",
+            wraplength=300,
+            foreground="#6b7280",
+        ).pack(anchor="w")
+        self.ingest_button = ttk.Button(ingest_box, text="解析输入文档", command=self._start_hybrid_ingest)
+        self.ingest_button.pack(fill="x", pady=(6, 0))
+
+        build_box = ttk.LabelFrame(left, text="4. 构建混合索引", padding=10)
+        build_box.pack(fill="x")
+        ttk.Label(build_box, text="视觉 Embedding 模型").pack(anchor="w")
+        ttk.Entry(build_box, textvariable=self.model_name).pack(fill="x", pady=(4, 6))
+        ttk.Label(
+            build_box,
+            text="首次运行会下载 Qwen3-VL 模型；模型缓存保存在应用数据目录。",
+            wraplength=300,
+            foreground="#6b7280",
+        ).pack(anchor="w")
+        ttk.Checkbutton(build_box, text="强制完全重建", variable=self.force_rebuild).pack(anchor="w", pady=(6, 4))
+        self.build_button = ttk.Button(build_box, text="开始构建", command=self._start_build)
+        self.build_button.pack(fill="x", pady=(4, 0))
+
+        self.notebook = ttk.Notebook(right)
+        self.notebook.pack(fill="both", expand=True)
+        search_tab = ttk.Frame(self.notebook, padding=12)
+        answer_tab = ttk.Frame(self.notebook, padding=12)
+        log_tab = ttk.Frame(self.notebook, padding=8)
+        about_tab = ttk.Frame(self.notebook, padding=18)
+        self.search_tab = search_tab
+        self.answer_tab = answer_tab
+        self.log_tab = log_tab
+        self.notebook.add(search_tab, text="检索检查器")
+        self.notebook.add(answer_tab, text="证据回答")
+        self.notebook.add(log_tab, text="运行日志")
+        self.notebook.add(about_tab, text="能力说明")
+
+        search_row = ttk.Frame(search_tab)
+        search_row.pack(fill="x")
+        self.query_entry = ttk.Entry(search_row, textvariable=self.query_text, font=("Segoe UI", 11))
+        self.query_entry.pack(side="left", fill="x", expand=True)
+        self.query_entry.bind("<Return>", self._search)
+        ttk.Label(search_row, text="Top K").pack(side="left", padx=(10, 4))
+        ttk.Spinbox(search_row, from_=1, to=100, textvariable=self.top_k, width=4).pack(side="left")
+        self.start_search_button = ttk.Button(
+            search_row, text="初始化检索器", command=self._start_server, state="disabled"
+        )
+        self.start_search_button.pack(side="left", padx=8)
+        self.search_button = ttk.Button(
+            search_row, text="搜索", command=self._search, state="disabled"
+        )
+        self.search_button.pack(side="left")
+        ttk.Label(
+            search_tab,
+            text="只检查检索结果，不调用 LLM。首次查询会加载向量模型，之后查询会复用模型。",
+            foreground="#6b7280",
+        ).pack(anchor="w", pady=(8, 0))
+
+        result_frame = ttk.Panedwindow(search_tab, orient="horizontal")
+        result_frame.pack(fill="both", expand=True, pady=(12, 0))
+        result_left = ttk.Frame(result_frame)
+        result_right = ttk.Frame(result_frame, padding=(12, 0, 0, 0))
+        result_frame.add(result_left, weight=2)
+        result_frame.add(result_right, weight=3)
+        self.results = tk.Listbox(result_left, font=("Consolas", 10), activestyle="dotbox")
+        self.results.pack(fill="both", expand=True)
+        self.results.bind("<<ListboxSelect>>", self._show_selected_result)
+        self.result_payloads: list[dict] = []
+        self.result_view_mode = tk.StringVar(value="evidence")
+        view_controls = ttk.Frame(result_right)
+        view_controls.pack(fill="x", pady=(0, 6))
+        ttk.Radiobutton(
+            view_controls,
+            text="证据视图",
+            variable=self.result_view_mode,
+            value="evidence",
+            command=self._show_selected_result,
+        ).pack(side="left")
+        ttk.Radiobutton(
+            view_controls,
+            text="原页视图",
+            variable=self.result_view_mode,
+            value="original",
+            command=self._show_selected_result,
+        ).pack(side="left", padx=(10, 0))
+        self.preview_container = ttk.Frame(result_right)
+        self.preview_container.pack(fill="both", expand=True)
+        self.preview = ttk.Label(self.preview_container, text="命中图片时显示预览", anchor="center")
+        self.result_text_frame = ttk.Frame(self.preview_container)
+        self.result_text = tk.Text(
+            self.result_text_frame,
+            wrap="word",
+            font=("Segoe UI", 10),
+            bg="#ffffff",
+            fg="#1f2937",
+            relief="solid",
+            borderwidth=1,
+        )
+        result_scroll = ttk.Scrollbar(self.result_text_frame, orient="vertical", command=self.result_text.yview)
+        self.result_text.configure(yscrollcommand=result_scroll.set)
+        self.result_text.pack(side="left", fill="both", expand=True)
+        result_scroll.pack(side="right", fill="y")
+        self.result_text_frame.pack(fill="both", expand=True)
+        self._set_result_text("输入问题后，这里会显示命中的文字、表格原始内容或图片。")
+        self.result_meta = ttk.Label(result_right, text="", wraplength=520, foreground="#374151")
+        self.result_meta.pack(fill="x", pady=(8, 0))
+
+        answer_settings = ttk.LabelFrame(answer_tab, text="阿里云百炼回答模型", padding=10)
+        answer_settings.pack(fill="x")
+        ttk.Label(answer_settings, text="模型").grid(row=0, column=0, sticky="w")
+        self.bailian_model_combo = ttk.Combobox(
+            answer_settings,
+            textvariable=self.bailian_model,
+            width=36,
+        )
+        self.bailian_model_combo.grid(row=0, column=1, sticky="ew", padx=(6, 12))
+        ttk.Label(answer_settings, text="API 地址").grid(row=0, column=2, sticky="w")
+        ttk.Entry(
+            answer_settings,
+            textvariable=self.bailian_base_url,
+            width=30,
+        ).grid(row=0, column=3, sticky="ew", padx=(6, 12))
+        self.bailian_probe_button = ttk.Button(
+            answer_settings,
+            text="连接测试",
+            command=self._probe_bailian_models,
+        )
+        self.bailian_probe_button.grid(row=0, column=4, padx=(0, 8))
+        self.answer_button = ttk.Button(
+            answer_settings,
+            text="基于当前检索结果生成回答",
+            command=self._generate_answer,
+            state="disabled",
+        )
+        self.answer_button.grid(row=0, column=5)
+        ttk.Checkbutton(
+            answer_settings,
+            text="向支持视觉的百炼模型发送图片",
+            variable=self.send_visual_assets,
+        ).grid(row=2, column=1, columnspan=3, sticky="w", pady=(8, 0))
+        ttk.Label(answer_settings, text="API Key").grid(row=1, column=0, sticky="w", pady=(8, 0))
+        ttk.Entry(
+            answer_settings,
+            textvariable=self.bailian_api_key,
+            show="●",
+        ).grid(row=1, column=1, columnspan=3, sticky="ew", padx=(6, 12), pady=(8, 0))
+        ttk.Label(
+            answer_settings,
+            text="也可通过 DASHSCOPE_API_KEY 环境变量提供；不会写入日志。",
+            foreground="#6b7280",
+        ).grid(row=1, column=4, columnspan=2, sticky="w", pady=(8, 0))
+        ttk.Label(
+            answer_settings,
+            text="回答只使用通过筛选的证据；引用校验失败会自动修复一次，仍失败则不输出答案。",
+            foreground="#6b7280",
+        ).grid(row=2, column=3, columnspan=3, sticky="e", pady=(8, 0))
+        answer_settings.columnconfigure(1, weight=2)
+        answer_settings.columnconfigure(3, weight=1)
+
+        answer_result = ttk.Panedwindow(answer_tab, orient="vertical")
+        answer_result.pack(fill="both", expand=True, pady=(12, 0))
+        answer_text_frame = ttk.LabelFrame(answer_result, text="回答", padding=8)
+        citation_frame = ttk.LabelFrame(answer_result, text="引用来源", padding=8)
+        answer_result.add(answer_text_frame, weight=3)
+        answer_result.add(citation_frame, weight=1)
+        self.answer_text = tk.Text(
+            answer_text_frame,
+            wrap="word",
+            font=("Segoe UI", 11),
+            bg="#ffffff",
+            fg="#1f2937",
+            relief="solid",
+            borderwidth=1,
+        )
+        answer_scroll = ttk.Scrollbar(
+            answer_text_frame,
+            orient="vertical",
+            command=self.answer_text.yview,
+        )
+        self.answer_text.configure(yscrollcommand=answer_scroll.set)
+        self.answer_text.pack(side="left", fill="both", expand=True)
+        answer_scroll.pack(side="right", fill="y")
+        self.answer_text.insert("1.0", "请先在检索检查器中搜索，再生成带引用回答。")
+        self.answer_text.configure(state="disabled")
+        self.answer_citations = tk.Listbox(
+            citation_frame,
+            font=("Segoe UI", 10),
+            activestyle="none",
+        )
+        self.answer_citations.pack(fill="both", expand=True)
+
+        self.log_text = tk.Text(log_tab, wrap="none", font=("Consolas", 9), bg="#111827", fg="#d1fae5")
+        self.log_text.pack(fill="both", expand=True)
+
+        about = (
+            "本应用使用 Hybrid 输入与图片专用 Pixel 流程：\n\n"
+            "文档 → 原生结构解析 → 文字结构分块 / 表格结构分块 / visual 延迟物化 → "
+            "Qwen3-VL-Embedding-2B 统一向量 → 三通道 FAISS 索引快照。\n\n"
+            "Office 临时 PDF 只负责页面坐标补全和复杂视觉对象渲染；文字和表格不会进入 Pixel。\n\n"
+            "当前构建和检索固定使用 CPU，以保证无独立显卡的 Windows 电脑也能运行。\n\n"
+            "证据回答层通过阿里云百炼 API 生成结构化主张，并执行强制引用校验。"
+        )
+        ttk.Label(about_tab, text=about, wraplength=760, justify="left", font=("Segoe UI", 11)).pack(anchor="nw")
+        ttk.Label(
+            about_tab,
+            text="PixelRAG：Apache-2.0；应用数据与模型默认保存在程序旁的 PixelRAG-Studio-Data。",
+            foreground="#6b7280",
+        ).pack(anchor="sw", pady=(30, 0))
+
+        status = ttk.Label(self.root, textvariable=self.status_text, relief="sunken", anchor="w", padding=(10, 5))
+        status.pack(fill="x", side="bottom")
+
+    @staticmethod
+    def _safe_name(value: str) -> str:
+        value = "".join(c if c.isalnum() or c in "-_ " else "_" for c in value).strip()
+        return value or "PixelRAG项目"
+
+    def _create_project(self) -> None:
+        name = self._safe_name(self.project_name.get())
+        self.project_name.set(name)
+        next_project = self.projects_root / name
+        if self.project_dir != next_project:
+            self._stop_server()
+        self.project_dir = next_project
+        for sub in ("source", "artifacts", "index", "logs"):
+            (self.project_dir / sub).mkdir(parents=True, exist_ok=True)
+        self._write_config()
+        self._refresh_documents()
+        self._set_search_controls(self._index_ready())
+        self.status_text.set(f"项目已打开：{self.project_dir}")
+
+    def _ensure_project(self) -> bool:
+        if self.project_dir is None:
+            self._create_project()
+        return self.project_dir is not None
+
+    def _write_config(self) -> Path:
+        assert self.project_dir is not None
+        config = {
+            "source": {"type": "local", "path": str((self.project_dir / "source").resolve())},
+            "ingest": {"backend": "cdp", "quality": 90, "tile_height": 8192, "dpi": 200},
+            "embed": {"model": self.model_name.get().strip() or DEFAULT_MODEL, "device": "cpu"},
+            "output": str((self.project_dir / "index").resolve()),
+        }
+        path = self.project_dir / "pixelrag.yaml"
+        import yaml
+
+        path.write_text(yaml.safe_dump(config, allow_unicode=True, sort_keys=False), encoding="utf-8")
+        return path
+
+    def _add_documents(self) -> None:
+        from tkinter import filedialog, messagebox
+
+        if not self._ensure_project():
+            return
+        files = filedialog.askopenfilenames(
+            title="选择 PDF、Word、PPT、Excel、图片或文本",
+            filetypes=[
+                ("Hybrid 支持的文档", "*.pdf *.doc *.docx *.ppt *.pptx *.xls *.xlsx *.png *.jpg *.jpeg *.webp *.md *.txt *.html *.htm"),
+                ("所有文件", "*.*"),
+            ],
+        )
+        copied = 0
+        for raw in files:
+            src = Path(raw)
+            if src.suffix.lower() not in SUPPORTED:
+                continue
+            dest = self.project_dir / "source" / src.name
+            if dest.exists() and dest.resolve() != src.resolve():
+                stamp = datetime.now().strftime("%H%M%S")
+                dest = dest.with_name(f"{dest.stem}_{stamp}{dest.suffix}")
+            shutil.copy2(src, dest)
+            copied += 1
+        self._refresh_documents()
+        if copied:
+            self._stop_server()
+            self.status_text.set(f"已添加 {copied} 个文档")
+        elif files:
+            messagebox.showwarning(APP_NAME, "没有可添加的受支持文件。")
+
+    def _refresh_documents(self) -> None:
+        self.docs_list.delete(0, self.tk.END)
+        if not self.project_dir:
+            return
+        for p in sorted((self.project_dir / "source").glob("*")):
+            if p.is_file() and p.suffix.lower() in SUPPORTED:
+                self.docs_list.insert(self.tk.END, p.name)
+
+    def _remove_document(self) -> None:
+        from tkinter import messagebox
+
+        if not self.project_dir or not self.docs_list.curselection():
+            return
+        name = self.docs_list.get(self.docs_list.curselection()[0])
+        if messagebox.askyesno(APP_NAME, f"从项目中移除 {name}？\n原始文件不会受影响。"):
+            (self.project_dir / "source" / name).unlink(missing_ok=True)
+            self._refresh_documents()
+            self._stop_server()
+            self.status_text.set("文档已移除，请重新构建索引")
+
+    def _worker_command(self, *args: str) -> list[str]:
+        if getattr(sys, "frozen", False):
+            return [sys.executable, *args]
+        return [sys.executable, str(Path(__file__).resolve()), *args]
+
+    def _worker_env(self, log_path: Path) -> dict[str, str]:
+        env = os.environ.copy()
+        root = _runtime_root()
+        poppler_candidates = (root / "poppler", root / "vendor" / "poppler")
+        for poppler in poppler_candidates:
+            if (poppler / "pdfinfo.exe").exists() and (poppler / "pdftoppm.exe").exists():
+                env["PATH"] = str(poppler) + os.pathsep + env.get("PATH", "")
+                break
+        env["PIXELRAG_STUDIO_LOG"] = str(log_path)
+        env["HF_HOME"] = str(self.model_cache)
+        env["HF_HUB_CACHE"] = str(self.model_cache / "hub")
+        env["TRANSFORMERS_CACHE"] = str(self.model_cache / "transformers")
+        env["PYTHONUTF8"] = "1"
+        env["TOKENIZERS_PARALLELISM"] = "false"
+        return env
+
+    def _start_hybrid_ingest(self) -> None:
+        from tkinter import messagebox
+
+        if not self._ensure_project():
+            return
+        if self.docs_list.size() == 0:
+            messagebox.showwarning(APP_NAME, "请先添加至少一个文档。")
+            return
+        if self.ingest_process and self.ingest_process.poll() is None:
+            messagebox.showinfo(APP_NAME, "Hybrid 输入正在解析，请查看运行日志。")
+            return
+        if self.build_process and self.build_process.poll() is None:
+            messagebox.showinfo(APP_NAME, "索引正在构建，请等待完成后再单独运行输入解析。")
+            return
+        assert self.project_dir is not None
+        log_path = self.project_dir / "logs" / "ingest.log"
+        log_path.write_text(
+            f"[{datetime.now().isoformat(timespec='seconds')}] 开始 Hybrid 输入解析\n",
+            encoding="utf-8",
+        )
+        self._ingest_log_offset = 0
+        cmd = self._worker_command(
+            "--worker-hybrid",
+            str(self.project_dir / "source"),
+            str(self.project_dir / "artifacts"),
+        )
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        self.ingest_process = subprocess.Popen(
+            cmd,
+            cwd=str(self.project_dir),
+            env=self._worker_env(log_path),
+            creationflags=flags,
+        )
+        self.ingest_button.configure(state="disabled")
+        self.status_text.set("正在解析：结构识别 → visual 分类与定位 → HybridDocument（不调用 Pixel）")
+        self.notebook.select(self.log_tab)
+
+    def _start_build(self) -> None:
+        from tkinter import messagebox
+
+        if not self._ensure_project():
+            return
+        if self.docs_list.size() == 0:
+            messagebox.showwarning(APP_NAME, "请先添加至少一个支持的文档。")
+            return
+        if self.build_process and self.build_process.poll() is None:
+            messagebox.showinfo(APP_NAME, "索引正在构建，请查看运行日志。")
+            return
+        if self.ingest_process and self.ingest_process.poll() is None:
+            messagebox.showinfo(APP_NAME, "Hybrid 输入正在解析，请等待完成后再构建索引。")
+            return
+        if self.search_busy or self.answer_busy:
+            messagebox.showinfo(APP_NAME, "检索或回答正在执行，请等待本次任务完成后再重建索引。")
+            return
+        self._stop_server()
+        self._set_search_controls(False)
+        config = self._write_config()
+        log_path = self.project_dir / "logs" / "build.log"
+        build_mode = "强制完全重建" if self.force_rebuild.get() else "增量构建"
+        log_path.write_text(
+            f"[{datetime.now().isoformat(timespec='seconds')}] 开始{build_mode} Hybrid 混合索引\n",
+            encoding="utf-8",
+        )
+        self._log_offset = 0
+        cmd = self._worker_command("--worker-index", str(config))
+        if self.force_rebuild.get():
+            cmd.append("--force")
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        self.build_process = subprocess.Popen(
+            cmd,
+            cwd=str(self.project_dir),
+            env=self._worker_env(log_path),
+            creationflags=flags,
+        )
+        self.build_button.configure(state="disabled")
+        self.status_text.set(
+            f"正在{build_mode}：未变文档复用旧向量，仅处理新增或变更文档"
+        )
+        self.notebook.select(self.log_tab)
+
+    def _index_ready(self) -> bool:
+        if not self.project_dir:
+            return False
+        try:
+            from hybrid_input.indexing import current_snapshot
+
+            snapshot = current_snapshot(self.project_dir / "index")
+            manifest = json.loads((snapshot / "manifest.json").read_text(encoding="utf-8"))
+        except Exception:
+            return False
+        source_files = [path for path in (self.project_dir / "source").iterdir() if path.is_file()]
+        if not source_files:
+            return False
+        indexed = {entry["path"]: entry for entry in manifest.get("sources", [])}
+        return len(indexed) == len(source_files) and all(
+            str(path.resolve()) in indexed
+            and path.stat().st_size == indexed[str(path.resolve())].get("size")
+            and path.stat().st_mtime_ns == indexed[str(path.resolve())].get("modified_ns")
+            for path in source_files
+        )
+
+    def _find_free_port(self) -> int:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind(("127.0.0.1", 0))
+            return int(sock.getsockname()[1])
+
+    def _start_server(self) -> None:
+        from tkinter import messagebox
+
+        if not self._index_ready():
+            messagebox.showwarning(APP_NAME, "当前项目没有可用的最新索引，请先构建索引。")
+            self._set_search_controls(False)
+            return
+        if self.search_engine is not None:
+            self.status_text.set("检索器已经初始化，可以直接输入问题搜索")
+            return
+        if self.search_busy:
+            return
+        self.search_busy = True
+        self._set_search_controls(True)
+        self.status_text.set("正在初始化检索器；向量模型将在首次查询时加载")
+        threading.Thread(target=self._initialize_search_thread, daemon=True).start()
+
+    def _initialize_search_thread(self) -> None:
+        try:
+            from hybrid_input.retrieval import HybridSearchEngine
+
+            assert self.project_dir is not None
+            engine = HybridSearchEngine(self.project_dir / "index", device="cpu")
+            self.search_events.put(("ready", engine))
+        except Exception as exc:
+            self.search_events.put(("search_error", str(exc)))
+
+    def _server_url(self, path: str) -> str:
+        return f"http://127.0.0.1:{self.server_port}{path}"
+
+    def _server_ready(self) -> bool:
+        try:
+            with urllib.request.urlopen(self._server_url("/status"), timeout=1.0) as response:
+                return response.status == 200
+        except Exception:
+            return False
+
+    def _search(self, _event=None) -> None:
+        from tkinter import messagebox
+
+        query = self.query_text.get().strip()
+        if not query:
+            messagebox.showwarning(APP_NAME, "请输入要检索的内容。")
+            self.query_entry.focus_set()
+            return
+        if self.search_busy:
+            return
+        if not self._index_ready():
+            messagebox.showwarning(APP_NAME, "当前项目没有可用的最新索引，请先构建索引。")
+            self._set_search_controls(False)
+            return
+        try:
+            top_k = max(1, min(100, int(self.top_k.get())))
+        except (TypeError, ValueError):
+            top_k = 10
+            self.top_k.set(top_k)
+        self.search_busy = True
+        self._set_search_controls(True)
+        self.status_text.set("正在生成双语查询并检索；首次查询可能需要一些时间加载模型……")
+        threading.Thread(
+            target=self._search_thread,
+            args=(
+                query,
+                top_k,
+                self.bailian_model.get().strip(),
+                self.bailian_base_url.get().strip(),
+                self.bailian_api_key.get().strip(),
+            ),
+            daemon=True,
+        ).start()
+
+    def _search_thread(
+        self,
+        query: str,
+        top_k: int,
+        bailian_model: str,
+        bailian_base_url: str,
+        bailian_api_key: str,
+    ) -> None:
+        created_engine = None
+        try:
+            from hybrid_input.answering import BailianChatClient
+            from hybrid_input.retrieval import LLMEnglishQueryExpander
+            from hybrid_input.retrieval_contracts import RetrievalRequest
+
+            engine = self.search_engine
+            if engine is None:
+                from hybrid_input.retrieval import HybridSearchEngine
+
+                assert self.project_dir is not None
+                created_engine = HybridSearchEngine(self.project_dir / "index", device="cpu")
+                engine = created_engine
+            query_expander = None
+            if bailian_model and bailian_api_key:
+                query_expander = LLMEnglishQueryExpander(
+                    BailianChatClient(
+                        bailian_model,
+                        api_key=bailian_api_key,
+                        base_url=bailian_base_url or DEFAULT_BAILIAN_BASE_URL,
+                        timeout_seconds=45.0,
+                    )
+                )
+            response = engine.search(
+                RetrievalRequest(
+                    query_text=query,
+                    top_k=top_k,
+                    candidate_k=max(30, top_k),
+                ),
+                query_expander=query_expander,
+            )
+            self.search_events.put(
+                (
+                    "results",
+                    {
+                        "engine": created_engine,
+                        "response": response,
+                        "response_dict": response.to_dict(),
+                    },
+                )
+            )
+        except Exception as exc:
+            if created_engine is not None:
+                created_engine.close()
+            self.search_events.put(("search_error", str(exc)))
+
+    def _probe_bailian_models(self) -> None:
+        if self.bailian_probe_busy:
+            return
+        api_key = self.bailian_api_key.get().strip()
+        if not api_key:
+            from tkinter import messagebox
+
+            messagebox.showwarning(APP_NAME, "请输入百炼 API Key，或设置 DASHSCOPE_API_KEY。")
+            return
+        self.bailian_probe_busy = True
+        self.bailian_probe_button.configure(state="disabled")
+        self.status_text.set("正在连接阿里云百炼并读取模型列表……")
+        base_url = self.bailian_base_url.get().strip() or DEFAULT_BAILIAN_BASE_URL
+        threading.Thread(
+            target=self._probe_bailian_models_thread,
+            args=(base_url, api_key),
+            daemon=True,
+        ).start()
+
+    def _probe_bailian_models_thread(self, base_url: str, api_key: str) -> None:
+        try:
+            from hybrid_input.answering import BailianChatClient
+
+            client = BailianChatClient(
+                self.bailian_model.get().strip() or DEFAULT_BAILIAN_MODEL,
+                api_key=api_key,
+                base_url=base_url,
+                timeout_seconds=8.0,
+            )
+            self.search_events.put(("bailian_models", client.list_models()))
+        except Exception as exc:
+            self.search_events.put(("bailian_error", str(exc)))
+
+    def _generate_answer(self) -> None:
+        from tkinter import messagebox
+
+        if self.answer_busy:
+            return
+        if self.last_retrieval_response is None:
+            messagebox.showwarning(APP_NAME, "请先在检索检查器中完成一次搜索。")
+            return
+        model = self.bailian_model.get().strip()
+        if not model:
+            messagebox.showwarning(APP_NAME, "请选择或输入一个百炼回答模型。")
+            self.bailian_model_combo.focus_set()
+            return
+        api_key = self.bailian_api_key.get().strip()
+        if not api_key:
+            messagebox.showwarning(APP_NAME, "请输入百炼 API Key，或设置 DASHSCOPE_API_KEY。")
+            return
+        retrieval_response = self.last_retrieval_response
+        self.answer_busy = True
+        self._set_answer_controls()
+        self._set_answer_text("正在筛选证据并生成回答……")
+        self.answer_citations.delete(0, self.tk.END)
+        self.status_text.set("正在通过阿里云百炼生成回答并校验引用……")
+        send_visual_assets = bool(self.send_visual_assets.get())
+        threading.Thread(
+            target=self._answer_thread,
+            args=(model, self.bailian_base_url.get().strip(), api_key, retrieval_response, send_visual_assets, self.project_dir),
+            daemon=True,
+        ).start()
+
+    def _answer_thread(
+        self,
+        model: str,
+        base_url: str,
+        api_key: str,
+        retrieval_response: Any,
+        send_visual_assets: bool,
+        trace_project_dir: Path | None = None,
+    ) -> None:
+        try:
+            from hybrid_input.answering import AnswerEngine
+            from hybrid_input.answering_contracts import AnswerRequest
+
+            if retrieval_response is None:
+                raise RuntimeError("当前没有可用的检索响应")
+            engine = AnswerEngine.for_bailian(
+                model,
+                api_key=api_key,
+                base_url=base_url or DEFAULT_BAILIAN_BASE_URL,
+                send_visual_assets=send_visual_assets,
+            )
+            request = AnswerRequest(
+                query_text=retrieval_response.query_text,
+                retrieval_response=retrieval_response,
+            )
+            response = engine.answer(request)
+            # Capture the actual run locally so recall, filtering and budgeting can
+            # be distinguished without rerunning a nondeterministic model request.
+            if trace_project_dir is not None:
+                try:
+                    from dataclasses import asdict
+
+                    trace_dir = trace_project_dir / "logs" / "answers"
+                    trace_dir.mkdir(parents=True, exist_ok=True)
+                    trace_path = trace_dir / f"answer-{datetime.now():%Y%m%d-%H%M%S-%f}.json"
+                    trace = {
+                        "model": model,
+                        "send_visual_assets": send_visual_assets,
+                        "max_evidence_items": request.max_evidence_items,
+                        "max_evidence_chars": request.max_evidence_chars,
+                        "retrieval": retrieval_response.to_dict(),
+                        "candidates": [asdict(item) for item in engine.normalizer.normalize(request)],
+                        "selector_response": getattr(engine.selector, "last_response", None),
+                        "generator_response": getattr(engine.generator, "last_response", None),
+                        "answer": response.to_dict(),
+                    }
+                    with trace_path.open("x", encoding="utf-8") as handle:
+                        json.dump(trace, handle, ensure_ascii=False, indent=2)
+                except Exception as exc:
+                    response.warnings.append(f"本地问答诊断记录保存失败：{exc}")
+            self.search_events.put(("answer_results", response.to_dict()))
+        except Exception as exc:
+            self.search_events.put(("answer_error", str(exc)))
+
+    def _display_answer(self, response: dict[str, Any]) -> None:
+        self.log_text.insert(self.tk.END, _format_answer_diagnostics(response))
+        self.log_text.see(self.tk.END)
+        self._set_answer_text(_format_answer_response(response))
+        self.answer_citations.delete(0, self.tk.END)
+        for citation in response.get("citations") or []:
+            if isinstance(citation, dict):
+                self.answer_citations.insert(
+                    self.tk.END,
+                    _format_answer_citation_label(citation),
+                )
+        status = str(response.get("status") or "failed")
+        elapsed = float(response.get("elapsed_ms") or 0.0)
+        labels = {
+            "answered": "回答完成",
+            "insufficient_evidence": "证据不足，未生成推断性回答",
+            "failed": "回答失败并已安全停止",
+        }
+        self.status_text.set(
+            f"{labels.get(status, status)}：引用 {len(response.get('citations') or [])} 条，"
+            f"耗时 {elapsed:.0f} ms"
+        )
+        self.notebook.select(self.answer_tab)
+
+    def _display_hits(self, response: dict[str, Any]) -> None:
+        hits = response.get("hits", [])
+        self.results.delete(0, self.tk.END)
+        self.result_payloads = hits
+        for hit in hits:
+            self.results.insert(self.tk.END, _format_retrieval_hit_label(hit))
+        if hits:
+            self.results.selection_set(0)
+            self._show_selected_result()
+            elapsed = float(response.get("elapsed_ms", 0))
+            warnings = response.get("warnings") or []
+            suffix = f"；警告 {len(warnings)} 条" if warnings else ""
+            self.status_text.set(f"检索完成：返回 {len(hits)} 个结果，耗时 {elapsed:.0f} ms{suffix}")
+            self.notebook.select(self.search_tab)
+        else:
+            self.status_text.set("没有检索到结果")
+
+    def _show_selected_result(self, _event=None) -> None:
+        sel = self.results.curselection()
+        if not sel or sel[0] >= len(self.result_payloads):
+            return
+        hit = self.result_payloads[sel[0]]
+        if self.result_view_mode.get() == "original":
+            self._show_original_page(hit)
+        else:
+            self._show_evidence_view(hit)
+        provenance = hit.get("provenance") or {}
+        pages = hit.get("context_pages") or []
+        location = (
+            f"{_format_retrieval_location(provenance)} / "
+            f"上下文 第 {pages[0]}–{pages[-1]} 页"
+            if len(pages) > 1
+            else _format_retrieval_location(provenance)
+        )
+        self.result_meta.configure(
+            text=(
+                f"文档：{hit.get('source_path', '')}\n"
+                f"模态：{hit.get('modality', '')}    排名：{hit.get('rank', '')}    "
+                f"融合分：{float(hit.get('fusion_score', 0)):.5f}    "
+                f"原始分：{float(hit.get('raw_score', 0)):.5f}\n"
+                f"位置：{location}    "
+                f"记录 ID：{hit.get('record_id', '')}"
+            )
+        )
+
+    def _show_evidence_view(self, hit: dict[str, Any]) -> None:
+        from PIL import Image, ImageTk
+
+        blocks = hit.get("evidence_blocks") or []
+        if not blocks:
+            self._show_result_text(_format_retrieval_content(hit))
+            return
+        self.preview.pack_forget()
+        self.preview.configure(image="", text="")
+        self.preview_image = None
+        self.evidence_images = []
+        self.result_text_frame.pack(fill="both", expand=True)
+        self.result_text.configure(state="normal")
+        self.result_text.delete("1.0", self.tk.END)
+        for index, block in enumerate(blocks):
+            if index:
+                self.result_text.insert(self.tk.END, "\n\n")
+            self.result_text.insert(
+                self.tk.END,
+                _format_evidence_block_header(block) + "\n",
+                ("evidence_header",),
+            )
+            asset_path = block.get("asset_path")
+            if block.get("modality") == "visual" and asset_path and Path(asset_path).is_file():
+                try:
+                    image = Image.open(asset_path).convert("RGB")
+                    image.thumbnail((480, 300), Image.LANCZOS)
+                    rendered = ImageTk.PhotoImage(image)
+                    self.evidence_images.append(rendered)
+                    self.result_text.image_create(self.tk.END, image=rendered)
+                    description = _format_evidence_block_content(block)
+                    if description:
+                        self.result_text.insert(self.tk.END, "\n" + description)
+                    continue
+                except Exception as exc:
+                    self.result_text.insert(self.tk.END, f"图片加载失败：{exc}\n")
+            self.result_text.insert(self.tk.END, _format_evidence_block_content(block))
+        self.result_text.tag_configure(
+            "evidence_header",
+            foreground="#1d4ed8",
+            font=("Segoe UI", 10, "bold"),
+        )
+        self.result_text.configure(state="disabled")
+
+    def _show_original_page(self, hit: dict[str, Any]) -> None:
+        from PIL import Image, ImageDraw, ImageTk
+
+        source = Path(str(hit.get("source_path") or ""))
+        provenance = hit.get("provenance") or {}
+        page_number = provenance.get("page")
+        if hit.get("document_type") != "pdf" or not source.is_file() or not page_number:
+            self._show_result_text("原页视图第一版仅支持具有有效页码的 PDF。")
+            return
+        try:
+            import pymupdf
+
+            document = pymupdf.open(source)
+            try:
+                if not 1 <= int(page_number) <= document.page_count:
+                    raise ValueError("页码超出 PDF 范围")
+                page = document.load_page(int(page_number) - 1)
+                scale = 1.5
+                pixmap = page.get_pixmap(
+                    matrix=pymupdf.Matrix(scale, scale),
+                    colorspace=pymupdf.csRGB,
+                    alpha=False,
+                )
+                image = Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
+                draw = ImageDraw.Draw(image)
+                for block in hit.get("evidence_blocks") or []:
+                    regions = block.get("regions") or [block.get("provenance") or {}]
+                    for region in regions:
+                        if region.get("page") != page_number:
+                            continue
+                        bbox = region.get("bbox")
+                        if not isinstance(bbox, (list, tuple)) or len(bbox) != 4:
+                            continue
+                        values = [float(value) for value in bbox]
+                        if max(abs(value) for value in values) <= 1.5:
+                            values = [
+                                values[0] * image.width,
+                                values[1] * image.height,
+                                values[2] * image.width,
+                                values[3] * image.height,
+                            ]
+                        else:
+                            values = [value * scale for value in values]
+                        color = "#dc2626" if block.get("role") == "core" else "#f59e0b"
+                        draw.rectangle(values, outline=color, width=4)
+            finally:
+                document.close()
+            image.thumbnail((620, 520), Image.LANCZOS)
+            self.preview_image = ImageTk.PhotoImage(image)
+            self.evidence_images = []
+            self.result_text_frame.pack_forget()
+            self.preview.configure(image=self.preview_image, text="")
+            self.preview.pack(fill="both", expand=True)
+        except Exception as exc:
+            self._show_result_text(f"原页渲染失败：{exc}")
+
+    def _set_result_text(self, value: str) -> None:
+        self.result_text.configure(state="normal")
+        self.result_text.delete("1.0", self.tk.END)
+        self.result_text.insert("1.0", value)
+        self.result_text.configure(state="disabled")
+
+    def _set_answer_text(self, value: str) -> None:
+        self.answer_text.configure(state="normal")
+        self.answer_text.delete("1.0", self.tk.END)
+        self.answer_text.insert("1.0", value)
+        self.answer_text.configure(state="disabled")
+
+    def _show_result_text(self, value: str) -> None:
+        self.preview.pack_forget()
+        self.preview.configure(image="", text="")
+        self.preview_image = None
+        self.evidence_images = []
+        self.result_text_frame.pack(fill="both", expand=True)
+        self._set_result_text(value)
+
+    def _set_search_controls(self, index_ready: bool) -> None:
+        search_state = "normal" if index_ready and not self.search_busy else "disabled"
+        initialize_state = (
+            "normal"
+            if index_ready and not self.search_busy and self.search_engine is None
+            else "disabled"
+        )
+        self.start_search_button.configure(state=initialize_state)
+        self.search_button.configure(state=search_state)
+        self.start_search_button.configure(
+            text="检索器已初始化" if self.search_engine is not None else "初始化检索器"
+        )
+        self._set_answer_controls()
+
+    def _set_answer_controls(self) -> None:
+        if not hasattr(self, "answer_button"):
+            return
+        answer_state = (
+            "normal"
+            if self.last_retrieval_response is not None
+            and not self.search_busy
+            and not self.answer_busy
+            else "disabled"
+        )
+        self.answer_button.configure(state=answer_state)
+
+    def _append_log_file(self, path: Path, offset_attr: str) -> None:
+        if not path.exists():
+            return
+        offset = getattr(self, offset_attr)
+        try:
+            with path.open("r", encoding="utf-8", errors="replace") as handle:
+                handle.seek(offset)
+                content = handle.read()
+                setattr(self, offset_attr, handle.tell())
+            if content:
+                self.log_text.insert(self.tk.END, content)
+                self.log_text.see(self.tk.END)
+        except OSError:
+            pass
+
+    def _poll(self) -> None:
+        while True:
+            try:
+                event, payload = self.search_events.get_nowait()
+            except queue.Empty:
+                break
+            if event == "ready":
+                self.search_engine = payload
+                self.search_busy = False
+                self._set_search_controls(True)
+                self.status_text.set("检索器已初始化；首次查询将加载向量模型")
+            elif event == "results" and isinstance(payload, dict):
+                if payload.get("engine") is not None:
+                    self.search_engine = payload["engine"]
+                self.search_busy = False
+                self.last_retrieval_response = payload.get("response")
+                self._set_search_controls(True)
+                response = payload.get("response_dict")
+                self._display_hits(response if isinstance(response, dict) else {})
+            elif event == "answer_results" and isinstance(payload, dict):
+                self.answer_busy = False
+                self._set_answer_controls()
+                self._display_answer(payload)
+            elif event == "answer_error":
+                self.answer_busy = False
+                self._set_answer_controls()
+                self._set_answer_text(f"回答生成失败：{payload}")
+                self.log_text.insert(
+                    self.tk.END,
+                    f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] "
+                    f"Answer error: {payload}\n",
+                )
+                self.log_text.see(self.tk.END)
+                self.status_text.set(f"回答生成失败：{payload}")
+                self.notebook.select(self.answer_tab)
+            elif event == "bailian_models" and isinstance(payload, list):
+                self.bailian_probe_busy = False
+                self.bailian_probe_button.configure(state="normal")
+                models = [str(value) for value in payload if str(value).strip()]
+                self.bailian_model_combo.configure(values=models)
+                if models and not self.bailian_model.get().strip():
+                    self.bailian_model.set(models[0])
+                self.status_text.set(
+                    f"百炼已连接：发现 {len(models)} 个可用模型"
+                    if models
+                    else "百炼已连接，但接口未返回可用模型"
+                )
+            elif event == "bailian_error":
+                self.bailian_probe_busy = False
+                self.bailian_probe_button.configure(state="normal")
+                self.status_text.set(f"百炼连接失败：{payload}")
+            else:
+                self.search_busy = False
+                self._set_search_controls(self._index_ready())
+                self.status_text.set(f"搜索失败：{payload}")
+        if self.project_dir:
+            self._append_log_file(self.project_dir / "logs" / "ingest.log", "_ingest_log_offset")
+            self._append_log_file(self.project_dir / "logs" / "build.log", "_log_offset")
+            self._append_log_file(self.project_dir / "logs" / "server.log", "_last_server_log_offset")
+        if self.build_process and self.build_process.poll() is not None:
+            code = self.build_process.returncode
+            self.build_process = None
+            self.build_button.configure(state="normal")
+            if code == 0 and self._index_ready():
+                self._set_search_controls(True)
+                self.status_text.set("Hybrid 混合索引构建完成，可以使用检索检查器")
+            else:
+                self._set_search_controls(False)
+                self.status_text.set(f"索引构建失败（退出码 {code}），请查看运行日志")
+        if self.ingest_process and self.ingest_process.poll() is not None:
+            code = self.ingest_process.returncode
+            self.ingest_process = None
+            self.ingest_button.configure(state="normal")
+            if code == 0:
+                self.status_text.set("Hybrid 输入解析完成；结果已保存到项目 artifacts 目录")
+            else:
+                self.status_text.set(f"Hybrid 输入解析失败（退出码 {code}），请查看运行日志")
+        self.root.after(800, self._poll)
+
+    def _open_data_root(self) -> None:
+        os.startfile(str(self.data_root))
+
+    def _open_project(self) -> None:
+        if self._ensure_project():
+            os.startfile(str(self.project_dir))
+
+    def _stop_server(self) -> None:
+        if self.search_engine is not None:
+            self.search_engine.close()
+        self.search_engine = None
+        self.last_retrieval_response = None
+        if self.server_process and self.server_process.poll() is None:
+            self.server_process.terminate()
+            try:
+                self.server_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.server_process.kill()
+        self.server_process = None
+        self.server_is_ready = False
+        if hasattr(self, "start_search_button"):
+            self._set_search_controls(False)
+        if hasattr(self, "answer_citations"):
+            self.answer_citations.delete(0, self.tk.END)
+
+    def _on_close(self) -> None:
+        self._stop_server()
+        if self.ingest_process and self.ingest_process.poll() is None:
+            self.ingest_process.terminate()
+        self.root.destroy()
+
+    def run(self) -> None:
+        self.root.mainloop()
+
+
+def main() -> None:
+    multiprocessing.freeze_support()
+    if _run_worker_mode():
+        return
+    StudioApp().run()
+
+
+if __name__ == "__main__":
+    main()

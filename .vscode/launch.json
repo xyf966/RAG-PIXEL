@@ -1,0 +1,82 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Studio：启动桌面应用",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/pixelrag_studio.py",
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "PYTHONUTF8": "1"
+      }
+    },
+    {
+      "name": "Hybrid：查看可用能力",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "hybrid_input",
+      "args": ["capabilities"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "PYTHONUTF8": "1"
+      }
+    },
+    {
+      "name": "Hybrid：识别当前文件",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "hybrid_input",
+      "args": ["detect", "${file}"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "PYTHONUTF8": "1"
+      }
+    },
+    {
+      "name": "Hybrid：仅解析当前文件",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "hybrid_input",
+      "args": ["parse", "${file}", "--output", "${workspaceFolder}/.hybrid-output/parse"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "PYTHONUTF8": "1"
+      }
+    },
+    {
+      "name": "Hybrid：渲染当前 Office 文件",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "hybrid_input",
+      "args": ["render", "${file}", "--output", "${workspaceFolder}/.hybrid-output/render"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "PYTHONUTF8": "1"
+      }
+    },
+    {
+      "name": "Hybrid：完整处理当前文件",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "hybrid_input",
+      "args": ["ingest", "${file}", "--output", "${workspaceFolder}/.hybrid-output/ingest"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "PYTHONUTF8": "1"
+      }
+    }
+  ]
+}
