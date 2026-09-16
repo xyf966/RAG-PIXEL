@@ -59,11 +59,18 @@ class QueryExpander(Protocol):
 
 
 class LLMEnglishQueryExpander:
-    """Add a faithful English search variant for a CJK query."""
+    """Translate and decompose a CJK query into faithful retrieval variants."""
 
     RESPONSE_SCHEMA: dict[str, Any] = {
         "type": "object",
-        "properties": {"translated_query": {"type": "string"}},
+        "properties": {
+            "translated_query": {"type": "string"},
+            "search_queries": {
+                "type": "array",
+                "items": {"type": "string"},
+                "maxItems": 6,
+            },
+        },
         "required": ["translated_query"],
     }
 
@@ -81,9 +88,12 @@ class LLMEnglishQueryExpander:
             return (original,)
         response = self.client.complete_json(
             system_prompt=(
-                "你是跨语言检索查询翻译器。只翻译查询，不回答问题。"
-                "将中文查询忠实翻译成自然、简洁的英文检索查询；保留型号、编号、单位、"
-                "产品名和专有名词，不增加原问题没有的条件。"
+                "你是跨语言检索查询规划器。只规划检索查询，不回答问题。"
+                "将中文查询忠实翻译成自然、简洁的英文检索查询；同时识别问题明确要求的"
+                "每个对象、属性和条件，为每项要求生成一个可独立检索的中文search_query。"
+                "比较题、分别回答题和多对象问题必须拆分；单一要求可不拆分。"
+                "保留型号、编号、单位、产品名和专有名词，不猜答案，不增加原问题没有的条件，"
+                "不要预设任何可能答案或具体属性值。search_queries最多6条。"
             ),
             user_prompt=f"待翻译查询：{original}",
             schema=self.RESPONSE_SCHEMA,
@@ -92,9 +102,24 @@ class LLMEnglishQueryExpander:
         if not translated:
             raise RuntimeError("Query translator returned an empty translation")
         translated = translated[: self.max_query_chars].strip()
-        if _normalized_lexical_text(translated) == _normalized_lexical_text(original):
-            return (original,)
-        return (original, translated)
+        planned: list[str] = []
+        rows = response.get("search_queries")
+        if isinstance(rows, list):
+            for value in rows[:6]:
+                if not isinstance(value, str):
+                    continue
+                query = value[: self.max_query_chars].strip()
+                if query:
+                    planned.append(query)
+        variants = [original, translated, *planned]
+        unique: list[str] = []
+        seen: set[str] = set()
+        for value in variants:
+            identity = _normalized_lexical_text(value)
+            if identity and identity not in seen:
+                seen.add(identity)
+                unique.append(value)
+        return tuple(unique)
 
 
 class PixelRAGQueryEmbedder:
@@ -1452,6 +1477,90 @@ class HybridSearchEngine:
         )
         return list(dict.fromkeys(values))
 
+    def _rank_with_query_coverage(
+        self,
+        request: RetrievalRequest,
+        query_variants: tuple[str, ...],
+    ) -> RankedSearchResult:
+        """Interleave per-requirement rankings before filling from the global rank."""
+        coarse_k = max(
+            request.top_k,
+            min(request.candidate_k, request.top_k * 3),
+        )
+        if len(query_variants) <= 1:
+            combined = self.vector_retriever.search(request, query_variants)
+            combined_coarse = self.ranker.rank(combined, coarse_k)
+            combined_ranked = self.text_reranker.rerank(
+                combined_coarse,
+                request.query_text,
+                request.top_k,
+            )
+            return RankedSearchResult(
+                snapshot=combined_ranked.snapshot,
+                candidates=combined_ranked.candidates[: request.top_k],
+            )
+
+        per_variant_limit = min(
+            coarse_k,
+            max(2, math.ceil(request.top_k / len(query_variants)) + 2),
+        )
+        variant_rankings: list[tuple[RankedCandidate, ...]] = []
+        variant_results: list[VectorSearchResult] = []
+        for query_text in query_variants:
+            result = self.vector_retriever.search(request, (query_text,))
+            variant_results.append(result)
+            coarse = self.ranker.rank(result, coarse_k)
+            ranked = self.text_reranker.rerank(
+                coarse,
+                query_text,
+                per_variant_limit,
+            )
+            variant_rankings.append(ranked.candidates)
+
+        combined = VectorSearchResult(
+            snapshot=variant_results[0].snapshot,
+            candidates=MappingProxyType({
+                modality: self.vector_retriever._merge_query_candidates([
+                    result.candidates[modality] for result in variant_results
+                ])
+                for modality in request.modalities
+            }),
+        )
+        combined_coarse = self.ranker.rank(combined, coarse_k)
+        combined_ranked = self.text_reranker.rerank(
+            combined_coarse,
+            request.query_text,
+            coarse_k,
+        )
+
+        accepted: list[RankedCandidate] = []
+        seen: set[tuple[str, int]] = set()
+
+        def add(item: RankedCandidate) -> None:
+            key = (item.candidate.modality, item.candidate.index_position)
+            if key in seen or self.ranker._is_duplicate(item.candidate, accepted):
+                return
+            seen.add(key)
+            accepted.append(item)
+
+        for position in range(per_variant_limit):
+            for ranking in variant_rankings:
+                if position < len(ranking):
+                    add(ranking[position])
+                if len(accepted) >= request.top_k:
+                    break
+            if len(accepted) >= request.top_k:
+                break
+        if len(accepted) < request.top_k:
+            for item in combined_ranked.candidates:
+                add(item)
+                if len(accepted) >= request.top_k:
+                    break
+        return RankedSearchResult(
+            snapshot=combined_ranked.snapshot,
+            candidates=tuple(accepted[: request.top_k]),
+        )
+
     @classmethod
     def _hit(
         cls,
@@ -1517,17 +1626,7 @@ class HybridSearchEngine:
                         f"Bilingual query expansion unavailable; used original query: {exc}"
                     )
             semantic_query = "\n".join(query_variants)
-            vector_result = self.vector_retriever.search(request, query_variants)
-            coarse_k = max(
-                request.top_k,
-                min(request.candidate_k, request.top_k * 3),
-            )
-            coarse_result = self.ranker.rank(vector_result, coarse_k)
-            ranked_result = self.text_reranker.rerank(
-                coarse_result,
-                request.query_text,
-                request.top_k,
-            )
+            ranked_result = self._rank_with_query_coverage(request, query_variants)
             hits = []
             for rank, item in enumerate(ranked_result.candidates, 1):
                 adjacent_context, context_pages = self.evidence_expander.expand(

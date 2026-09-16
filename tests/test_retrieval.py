@@ -17,6 +17,7 @@ from hybrid_input.retrieval import (
     EvidenceAssembler,
     EvidenceExpander,
     HybridSearchEngine,
+    LLMEnglishQueryExpander,
     ModalitySearcher,
     PixelRAGQueryEmbedder,
     QueryAwareTextReranker,
@@ -857,6 +858,89 @@ class CandidateRankerTests(unittest.TestCase):
 
 
 class HybridSearchEngineTests(unittest.TestCase):
+    def test_query_planner_returns_translation_and_requirement_queries(self) -> None:
+        class Client:
+            def complete_json(self, **kwargs):
+                return {
+                    "translated_query": "How should A and B be handled?",
+                    "search_queries": ["对象A应如何处理", "对象B应如何处理"],
+                }
+
+        variants = LLMEnglishQueryExpander(Client()).expand(
+            "对象A和对象B分别应如何处理？"
+        )
+
+        self.assertEqual(
+            variants,
+            (
+                "对象A和对象B分别应如何处理？",
+                "How should A and B be handled?",
+                "对象A应如何处理",
+                "对象B应如何处理",
+            ),
+        )
+
+    def test_search_interleaves_planned_queries_for_subject_coverage(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            index_dir = Path(temporary) / "index"
+            _publish_snapshot(
+                index_dir,
+                "build-a",
+                vectors_by_modality={
+                    "text": np.asarray(
+                        [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0]],
+                        dtype=np.float32,
+                    ),
+                    "table": np.empty((0, 4), dtype=np.float32),
+                    "visual": np.empty((0, 4), dtype=np.float32),
+                },
+                metadata_overrides={
+                    "text": [
+                        {
+                            "record_id": "subject-a",
+                            "document_id": "document-a",
+                            "content_hash": "subject-a-hash",
+                            "embedding_text": "对象A处理要求",
+                            "original_content": {"text": "对象A处理要求"},
+                        },
+                        {
+                            "record_id": "subject-b",
+                            "document_id": "document-b",
+                            "content_hash": "subject-b-hash",
+                            "embedding_text": "对象B处理要求",
+                            "original_content": {"text": "对象B处理要求"},
+                        },
+                    ]
+                },
+            )
+
+            class Embedder:
+                model_name = "fake-unified-model"
+
+                def embed_query(self, query_text):
+                    if query_text == "对象B应如何处理":
+                        return [0.0, 1.0, 0.0, 0.0]
+                    return [1.0, 0.0, 0.0, 0.0]
+
+            class Expander:
+                def expand(self, query_text):
+                    return (query_text, "对象A应如何处理", "对象B应如何处理")
+
+            response = HybridSearchEngine(index_dir, Embedder()).search(
+                RetrievalRequest(
+                    "对象A和对象B分别应如何处理？",
+                    top_k=2,
+                    candidate_k=2,
+                    modalities=("text",),
+                ),
+                query_expander=Expander(),
+            )
+
+            self.assertEqual(
+                {hit.record_id for hit in response.hits},
+                {"subject-a", "subject-b"},
+            )
+
     def test_text_anchor_attaches_at_most_one_table_and_visual_per_page(self) -> None:
         def row(record_id: str, modality: str, text: str) -> dict:
             return {

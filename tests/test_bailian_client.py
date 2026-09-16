@@ -10,6 +10,7 @@ from hybrid_input.answering import (
     AnswerEngine,
     BailianChatClient,
     CitationValidator,
+    LLMEvidenceSelector,
     LLMAnswerGenerator,
     RetrievalEvidenceSelector,
 )
@@ -104,7 +105,7 @@ class BailianChatClientTests(unittest.TestCase):
         engine = AnswerEngine.for_bailian("qwen-plus", api_key="secret-key")
 
         self.assertIs(type(engine.validator), CitationValidator)
-        self.assertIs(type(engine.selector), RetrievalEvidenceSelector)
+        self.assertIs(type(engine.selector), LLMEvidenceSelector)
 
     def test_complete_json_uses_openai_compatible_endpoint_and_bearer_key(self) -> None:
         response = _Response({"choices": [{"message": {"content": '{"ok":true}'}}]})

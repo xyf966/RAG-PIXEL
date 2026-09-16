@@ -604,6 +604,18 @@ class AnsweringTests(unittest.TestCase):
         )
         self.assertEqual(len(errors), 2)
 
+    def test_validator_rejects_evidence_absence_as_a_cited_claim(self) -> None:
+        errors = CitationValidator().validate(
+            AnswerDraft(
+                True,
+                [AnswerClaim("提供的证据中未包含对象B的处理要求", ["E001"])],
+            ),
+            [_item()],
+            [EvidenceDecision("E001", True, "direct", 0.9)],
+        )
+
+        self.assertTrue(any("应移入limitations" in error for error in errors))
+
 
 if __name__ == "__main__":
     unittest.main()

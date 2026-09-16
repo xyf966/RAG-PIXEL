@@ -28,6 +28,11 @@ from .answering_contracts import (
 INSUFFICIENT_ANSWER = "当前检索证据不足，无法可靠回答该问题。"
 FAILED_ANSWER = "回答生成失败；为避免输出无依据内容，本次未生成答案。"
 _CITATION_PATTERN = re.compile(r"\[E\d+\]", re.IGNORECASE)
+_EVIDENCE_ABSENCE_CLAIM_PATTERN = re.compile(
+    r"(?:证据|资料|材料|文档).{0,12}(?:未包含|未提及|没有提供|没有说明|无法确认|不足)"
+    r"|evidence.{0,24}(?:does not|doesn't|did not|lacks?|insufficient)",
+    re.IGNORECASE,
+)
 
 
 class AnsweringError(RuntimeError):
@@ -1338,7 +1343,8 @@ class LLMAnswerGenerator:
                 "上一次输出未通过证据校验。请根据错误修正数值、对象、字段、单位及引用，"
                 "同时重新核对用户要求的最终结论，修正后的claims仍须完成所要求的比较、计算或综合，"
                 "不得仅保留原始数据而遗漏结论。"
-                "不得保留不受证据支持的主张；无法确认时将answerable设为false。\n"
+                "不得保留不受证据支持的主张；无法确认的子问题写入limitations。"
+                "只要至少一个子问题有直接证据就保持answerable=true。\n"
                 f"错误：{json.dumps(list(errors), ensure_ascii=False)}\n"
                 f"上一次输出：{json.dumps(previous, ensure_ascii=False)}"
             ),
@@ -1380,6 +1386,8 @@ class LLMAnswerGenerator:
                 "数值必须连同所属对象、字段、单位和适用条件一起核对。"
                 "不得把存储范围当作工作范围，不得拼接不同字段的数字，"
                 "不得把一个型号的数据直接套给另一个型号。"
+                "claims只能陈述证据支持的领域事实；‘证据未包含/未提及某信息’属于限制说明，"
+                "只能写入limitations，不得作为claim，也不得为其附加引用。"
                 "首要目标是回答用户要求的最终结论。允许根据给定证据进行必要的逻辑推导、"
                 "比较、计算和跨证据综合；这些推导不属于引入外部事实。"
                 "综合结论不必逐字出现在任何单条证据中，但必须由引用的证据共同支持，"
@@ -1394,9 +1402,11 @@ class LLMAnswerGenerator:
                 "完成综合问题。拆分claims是为了便于验证，不能拆掉对象之间的关系或遗漏结论；"
                 "一个综合结论可以作为一条claim并引用多条证据。"
                 "每条只绑定真正支持它的证据，避免重复摘录相同事实。"
-                "提交前检查claims整体是否回答了用户实际提出的问题，而非只回答相关的子问题。"
-                "若缺少完成综合所必需的输入，将answerable设为false，并在limitations中明确"
-                "指出缺失的对象或条件；不要把不完整的数据列表冒充最终答案。"
+                "提交前检查每个claim是否直接回答用户提出的一个完整或部分需求。"
+                "对于复合问题，若至少一个对象或子问题有充分证据，应将answerable设为true，"
+                "回答有证据的部分，并在limitations中明确列出缺失的对象或条件。"
+                "只有所有子问题都没有可回答的直接证据时才将answerable设为false。"
+                "不要把不完整的数据列表冒充综合结论，也不要把证据缺失写成claim。"
                 + (
                     "这是一个列表型问题：每条claim必须给出证据中明确出现的具体名称或具体条目；"
                     "不得把问题改写成陈述句，不得用‘涉及系列赛’‘包含相关项目’等笼统表述充当答案。"
@@ -1479,6 +1489,10 @@ class CitationValidator:
         for index, claim in enumerate(draft.claims, start=1):
             if _CITATION_PATTERN.search(claim.text):
                 errors.append(f"claim {index} 的文本包含手写引用标记")
+            if _EVIDENCE_ABSENCE_CLAIM_PATTERN.search(claim.text):
+                errors.append(
+                    f"claim {index} 把证据缺失写成了事实主张；应移入limitations"
+                )
             unknown = sorted(set(claim.evidence_ids).difference(evidence_ids))
             if unknown:
                 errors.append(f"claim {index} 引用了未知证据：{', '.join(unknown)}")
@@ -1559,7 +1573,10 @@ class AnswerEngine:
             timeout_seconds=timeout_seconds,
         )
         return cls(
-            selector=RetrievalEvidenceSelector(),
+            selector=LLMEvidenceSelector(
+                client,
+                send_visual_assets=send_visual_assets,
+            ),
             generator=LLMAnswerGenerator(client, send_visual_assets=send_visual_assets),
         )
 
@@ -1580,7 +1597,10 @@ class AnswerEngine:
             timeout_seconds=timeout_seconds,
         )
         return cls(
-            selector=RetrievalEvidenceSelector(),
+            selector=LLMEvidenceSelector(
+                client,
+                send_visual_assets=send_visual_assets,
+            ),
             generator=LLMAnswerGenerator(client, send_visual_assets=send_visual_assets),
         )
 
