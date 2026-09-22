@@ -32,6 +32,9 @@ recognition-boundary-test/
 schema2-index-acceptance/
 retrieval-acceptance/
 visual_index_sourse/
+online_word_test/
+rag_test_corpus/
+pelican_wukong_airplane.svg-animation.html
 
 # Editor and operating-system noise
 .codex-tmp/

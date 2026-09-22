@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+import json
+import tempfile
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from pixelrag_studio import (
+    _answer_trace_payload,
+    _cached_hybrid_summary,
     _format_answer_citation_label,
     _format_answer_diagnostics,
     _format_answer_response,
@@ -11,10 +18,131 @@ from pixelrag_studio import (
     _format_retrieval_content,
     _format_retrieval_hit_label,
     _format_retrieval_location,
+    _original_page_number,
+    _resolve_original_page_source,
+    _worker_hybrid,
 )
+from hybrid_input.parsers import document_id
 
 
 class StudioRetrievalFormattingTests(unittest.TestCase):
+    def test_original_page_number_uses_core_block_and_ppt_slide_fallback(self) -> None:
+        self.assertEqual(
+            _original_page_number({
+                "document_type": "docx",
+                "provenance": {},
+                "evidence_blocks": [{"role": "core", "provenance": {"page": 3}}],
+            }),
+            3,
+        )
+        self.assertEqual(
+            _original_page_number({
+                "document_type": "pptx",
+                "provenance": {"slide": 5},
+            }),
+            5,
+        )
+
+    def test_office_original_page_resolves_cached_layout_pdf(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            layout = (
+                project / "artifacts" / "report-abcdef123456" / "layout-render"
+            )
+            layout.mkdir(parents=True)
+            rendered = layout / "report.pdf"
+            rendered.write_bytes(b"%PDF-test")
+            source, page, kind = _resolve_original_page_source(
+                project,
+                {
+                    "document_id": "abcdef1234567890",
+                    "document_type": "docx",
+                    "source_path": "C:/docs/report.docx",
+                    "provenance": {"page": 2},
+                },
+            )
+            self.assertEqual(source, rendered)
+        self.assertEqual(page, 2)
+        self.assertEqual(kind, "office")
+    def test_office_original_page_reports_missing_layout_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(ValueError, "重新执行输入解析"):
+                _resolve_original_page_source(
+                    Path(directory),
+                    {
+                        "document_id": "abcdef1234567890",
+                        "document_type": "xlsx",
+                        "source_path": "C:/docs/report.xlsx",
+                        "provenance": {"page": 1},
+                    },
+                )
+
+    def test_answer_trace_omits_document_content_and_raw_model_response(self) -> None:
+        class Value:
+            def to_dict(self):
+                return {
+                    "hits": [{
+                        "rank": 1,
+                        "record_id": "r1",
+                        "document_id": "d1",
+                        "modality": "text",
+                        "content": {"text": "secret document text"},
+                        "context": "secret context",
+                        "evidence_blocks": [{"content": "secret block"}],
+                    }]
+                }
+
+        class Evidence:
+            def to_dict(self):
+                return {"evidence_id": "E001", "content": "secret", "context": "secret"}
+
+        class Normalizer:
+            def normalize(self, request):
+                return [Evidence()]
+
+        class Budgeter:
+            last_limits = {"mode": "simple"}
+
+        class Generator:
+            last_response = {"answerable": True, "claims": [{"text": "raw secret"}]}
+
+        class Engine:
+            normalizer = Normalizer()
+            budgeter = Budgeter()
+            generator = Generator()
+            selector = type("Selector", (), {"last_response": {"mode": "local"}})()
+
+        class Request:
+            max_evidence_items = 10
+            max_evidence_chars = 16_000
+
+        class Answer:
+            def to_dict(self):
+                return {
+                    "claims": [{
+                        "text": "answer",
+                        "evidence_ids": ["E001"],
+                        "supporting_quotes": {"E001": "secret quote"},
+                    }],
+                    "selected_evidence": [{
+                        "evidence_id": "E001", "content": "secret", "context": "secret"
+                    }],
+                }
+
+        trace = _answer_trace_payload(
+            model="qwen3.8-max",
+            send_visual_assets=False,
+            request=Request(),
+            retrieval_response=Value(),
+            engine=Engine(),
+            response=Answer(),
+        )
+        serialized = str(trace)
+        self.assertEqual(trace["privacy_mode"], "metadata_only")
+        self.assertNotIn("secret document text", serialized)
+        self.assertNotIn("secret quote", serialized)
+        self.assertNotIn("raw secret", serialized)
+
     def test_answer_diagnostics_exposes_decisions_claims_and_warnings(self) -> None:
         rendered = _format_answer_diagnostics(
             {
@@ -135,6 +263,78 @@ class StudioRetrievalFormattingTests(unittest.TestCase):
         self.assertIn("0.81234", label)
         self.assertIn("report.pdf", label)
         self.assertIn("第 7 页", label)
+
+
+class StudioHybridIngestCacheTests(unittest.TestCase):
+    @staticmethod
+    def _write_cached_result(source: Path, artifacts: Path) -> str:
+        digest = document_id(source)
+        destination = artifacts / f"{source.stem}-{digest[:12]}" / "hybrid-document.json"
+        destination.parent.mkdir(parents=True)
+        destination.write_text(
+            json.dumps({
+                "document_id": digest,
+                "source_path": str(source.resolve()),
+                "document_type": source.suffix.lstrip("."),
+                "artifacts": [{"kind": "text"}, {"kind": "visual"}],
+                "vision_results": [],
+                "providers": {},
+                "warnings": [],
+                "schema_version": "1.1",
+            }),
+            encoding="utf-8",
+        )
+        return digest
+
+    def test_cached_summary_rejects_changed_source(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "document.txt"
+            artifacts = root / "artifacts"
+            source.write_text("first", encoding="utf-8")
+            digest = self._write_cached_result(source, artifacts)
+
+            self.assertEqual(
+                _cached_hybrid_summary(source, artifacts, digest),
+                (2, 1),
+            )
+            source.write_text("changed", encoding="utf-8")
+            self.assertIsNone(
+                _cached_hybrid_summary(source, artifacts, document_id(source))
+            )
+
+    def test_worker_ingests_only_new_documents(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            sources = root / "source"
+            artifacts = root / "artifacts"
+            sources.mkdir()
+            artifacts.mkdir()
+            existing = sources / "existing.txt"
+            added = sources / "new.txt"
+            existing.write_text("already parsed", encoding="utf-8")
+            added.write_text("new document", encoding="utf-8")
+            self._write_cached_result(existing, artifacts)
+
+            calls: list[Path] = []
+
+            class Pipeline:
+                def ingest(self, source: Path, output_root: Path):
+                    calls.append(source)
+                    self.output_root = output_root
+                    return SimpleNamespace(artifacts=[SimpleNamespace(kind="text")])
+
+            pipeline = Pipeline()
+            with (
+                patch("pixelrag_studio._redirect_worker_output"),
+                patch("hybrid_input.build_default_pipeline", return_value=pipeline) as build,
+                patch("builtins.print"),
+            ):
+                _worker_hybrid(str(sources), str(artifacts))
+
+            build.assert_called_once_with()
+            self.assertEqual(calls, [added])
+            self.assertEqual(pipeline.output_root, artifacts)
 
 
 if __name__ == "__main__":

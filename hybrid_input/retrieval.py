@@ -58,6 +58,97 @@ class QueryExpander(Protocol):
     def expand(self, query_text: str) -> tuple[str, ...]: ...
 
 
+def _unique_query_variants(values: tuple[str, ...] | list[str]) -> tuple[str, ...]:
+    unique: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        query = str(value).strip()
+        identity = _normalized_lexical_text(query)
+        if identity and identity not in seen:
+            seen.add(identity)
+            unique.append(query)
+    return tuple(unique)
+
+
+class LocalQueryExpander:
+    """Deterministically split common compound queries without an API call."""
+
+    _RELATION_PATTERN = re.compile(r"分别|共同|同时|各自")
+    _SUBJECT_SEPARATOR = re.compile(r"\s*(?:、|和|与|以及|及|,|，)\s*")
+
+    def __init__(self, *, max_variants: int = 6, max_query_chars: int = 1000) -> None:
+        if isinstance(max_variants, bool) or not isinstance(max_variants, int):
+            raise TypeError("max_variants must be an integer")
+        if isinstance(max_query_chars, bool) or not isinstance(max_query_chars, int):
+            raise TypeError("max_query_chars must be an integer")
+        if min(max_variants, max_query_chars) < 1:
+            raise ValueError("Local query limits must be positive")
+        self.max_variants = max_variants
+        self.max_query_chars = max_query_chars
+
+    def expand(self, query_text: str) -> tuple[str, ...]:
+        original = str(query_text).strip()
+        if not original:
+            return ()
+        if not re.search(r"[\u3400-\u9fff]", original):
+            return (original[: self.max_query_chars],)
+        clean = original.rstrip("？?。.!！ ")
+        variants: list[str] = [original]
+        relation = self._RELATION_PATTERN.search(clean)
+        if relation:
+            subject_text = clean[: relation.start()].strip(" ，,")
+            predicate = clean[relation.end() :].strip(" ，,")
+            # A trailing clause often contains the shared property/operation.
+            clauses = [part.strip() for part in re.split(r"[；;]", predicate) if part.strip()]
+            predicate = clauses[-1] if clauses else predicate
+            subjects = [
+                value.strip()
+                for value in self._SUBJECT_SEPARATOR.split(subject_text)
+                if value.strip()
+            ]
+            if 1 < len(subjects) <= self.max_variants:
+                for subject in subjects:
+                    variants.append(f"{subject}{predicate}"[: self.max_query_chars])
+        # Semicolon-separated requirements are independently searchable even
+        # when the query does not use a relation word such as “分别”.
+        for clause in re.split(r"[；;]", clean):
+            clause = clause.strip()
+            if clause and clause != clean:
+                variants.append(clause[: self.max_query_chars])
+        return _unique_query_variants(variants)[: self.max_variants]
+
+
+class ResilientQueryExpander:
+    """Keep local planning available and use an LLM only as an enhancement."""
+
+    def __init__(self, remote: QueryExpander | None = None, *, max_variants: int = 8) -> None:
+        if isinstance(max_variants, bool) or not isinstance(max_variants, int):
+            raise TypeError("max_variants must be an integer")
+        if max_variants < 1:
+            raise ValueError("max_variants must be positive")
+        self.local = LocalQueryExpander()
+        self.remote = remote
+        self.max_variants = max_variants
+        self.last_warning = ""
+
+    def expand(self, query_text: str) -> tuple[str, ...]:
+        self.last_warning = ""
+        local_variants = self.local.expand(query_text)
+        if self.remote is None:
+            return local_variants
+        try:
+            remote_variants = self.remote.expand(query_text)
+        except Exception as exc:
+            self.last_warning = (
+                "Bilingual query enhancement unavailable; local query planning was used: "
+                f"{exc}"
+            )
+            return local_variants
+        remote_head = list(remote_variants[:2])
+        combined = [*remote_head, *local_variants, *remote_variants[2:]]
+        return _unique_query_variants(combined)[: self.max_variants]
+
+
 class LLMEnglishQueryExpander:
     """Translate and decompose a CJK query into faithful retrieval variants."""
 
@@ -68,7 +159,7 @@ class LLMEnglishQueryExpander:
             "search_queries": {
                 "type": "array",
                 "items": {"type": "string"},
-                "maxItems": 6,
+                "maxItems": 12,
             },
         },
         "required": ["translated_query"],
@@ -90,10 +181,10 @@ class LLMEnglishQueryExpander:
             system_prompt=(
                 "你是跨语言检索查询规划器。只规划检索查询，不回答问题。"
                 "将中文查询忠实翻译成自然、简洁的英文检索查询；同时识别问题明确要求的"
-                "每个对象、属性和条件，为每项要求生成一个可独立检索的中文search_query。"
+                "每个对象、属性和条件，为每项要求分别生成中文和英文两个可独立检索的search_query。"
                 "比较题、分别回答题和多对象问题必须拆分；单一要求可不拆分。"
                 "保留型号、编号、单位、产品名和专有名词，不猜答案，不增加原问题没有的条件，"
-                "不要预设任何可能答案或具体属性值。search_queries最多6条。"
+                "不要预设任何可能答案或具体属性值。search_queries最多12条。"
             ),
             user_prompt=f"待翻译查询：{original}",
             schema=self.RESPONSE_SCHEMA,
@@ -105,21 +196,13 @@ class LLMEnglishQueryExpander:
         planned: list[str] = []
         rows = response.get("search_queries")
         if isinstance(rows, list):
-            for value in rows[:6]:
+            for value in rows[:12]:
                 if not isinstance(value, str):
                     continue
                 query = value[: self.max_query_chars].strip()
                 if query:
                     planned.append(query)
-        variants = [original, translated, *planned]
-        unique: list[str] = []
-        seen: set[str] = set()
-        for value in variants:
-            identity = _normalized_lexical_text(value)
-            if identity and identity not in seen:
-                seen.add(identity)
-                unique.append(value)
-        return tuple(unique)
+        return _unique_query_variants([original, translated, *planned])
 
 
 class PixelRAGQueryEmbedder:
@@ -1621,6 +1704,11 @@ class HybridSearchEngine:
             if query_expander is not None:
                 try:
                     query_variants = query_expander.expand(request.query_text)
+                    expansion_warning = str(
+                        getattr(query_expander, "last_warning", "") or ""
+                    ).strip()
+                    if expansion_warning:
+                        query_warnings.append(expansion_warning)
                 except Exception as exc:
                     query_warnings.append(
                         f"Bilingual query expansion unavailable; used original query: {exc}"

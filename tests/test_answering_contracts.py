@@ -63,8 +63,8 @@ class AnsweringContractTests(unittest.TestCase):
     def test_request_validates_retrieval_response_and_budgets(self) -> None:
         request = AnswerRequest("  问题  ", _retrieval_response())
         self.assertEqual(request.query_text, "问题")
-        self.assertEqual(request.max_evidence_items, 6)
-        self.assertEqual(request.max_evidence_chars, 10_000)
+        self.assertEqual(request.max_evidence_items, 10)
+        self.assertEqual(request.max_evidence_chars, 16_000)
         with self.assertRaises(TypeError):
             AnswerRequest("问题", {})  # type: ignore[arg-type]
         with self.assertRaises(ValueError):
@@ -94,7 +94,11 @@ class AnsweringContractTests(unittest.TestCase):
 
     def test_answer_response_serializes_citations_and_status(self) -> None:
         evidence = _evidence()
-        claim = AnswerClaim("销售额为100万元", ["E001"])
+        claim = AnswerClaim(
+            "销售额为100万元",
+            ["E001"],
+            {"E001": "2025年销售额为100万元。"},
+        )
         response = AnswerResponse(
             query_text="销售额是多少？",
             snapshot_build_id="build-1",
@@ -109,6 +113,7 @@ class AnsweringContractTests(unittest.TestCase):
         payload = response.to_dict()
         self.assertEqual(payload["status"], "answered")
         self.assertEqual(payload["citations"][0]["provenance"]["page"], 2)
+        self.assertEqual(payload["claims"][0]["supporting_quotes"]["E001"], "2025年销售额为100万元。")
         self.assertIn('"evidence_id": "E001"', json.dumps(payload))
 
     def test_answered_response_requires_claims(self) -> None:
@@ -118,6 +123,15 @@ class AnsweringContractTests(unittest.TestCase):
                 snapshot_build_id="build-1",
                 status=AnswerStatus.ANSWERED,
                 answer_text="答案",
+            )
+
+        with self.assertRaisesRegex(ValueError, "at least one claim"):
+            AnswerResponse(
+                query_text="问题",
+                snapshot_build_id="build-1",
+                status=AnswerStatus.PARTIAL_ANSWER,
+                answer_text="部分答案",
+                limitations=["缺少对象B"],
             )
 
 

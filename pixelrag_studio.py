@@ -59,6 +59,72 @@ def _format_retrieval_location(provenance: dict[str, Any] | None) -> str:
     return " / ".join(parts) or "未标注位置"
 
 
+def _original_page_number(hit: dict[str, Any]) -> int | None:
+    """Return the rendered page containing the core evidence."""
+    provenances = [hit.get("provenance")]
+    provenances.extend(
+        block.get("provenance")
+        for block in hit.get("evidence_blocks") or []
+        if isinstance(block, dict) and block.get("role") == "core"
+    )
+    for provenance in provenances:
+        if not isinstance(provenance, dict):
+            continue
+        value = provenance.get("page")
+        if value is None and str(hit.get("document_type") or "").lower() in {"ppt", "pptx"}:
+            value = provenance.get("slide")
+        try:
+            page_number = int(value)
+        except (TypeError, ValueError):
+            continue
+        if page_number >= 1:
+            return page_number
+    return None
+
+
+def _resolve_original_page_source(
+    project_dir: Path | None,
+    hit: dict[str, Any],
+) -> tuple[Path, int, str]:
+    """Resolve the page-rendering source without opening the original Office file."""
+    document_type = str(hit.get("document_type") or "").lower()
+    source = Path(str(hit.get("source_path") or ""))
+    page_number = _original_page_number(hit)
+
+    if document_type == "pdf":
+        if not source.is_file():
+            raise ValueError("PDF 原文件不存在。")
+        if page_number is None:
+            raise ValueError("该证据没有有效页码。")
+        return source, page_number, "pdf"
+
+    if document_type in {"doc", "docx", "ppt", "pptx", "xls", "xlsx"}:
+        if project_dir is None:
+            raise ValueError("当前未选择知识库项目。")
+        document_id = str(hit.get("document_id") or "").strip()
+        if not document_id:
+            raise ValueError("该证据缺少文档标识，无法定位版面缓存。")
+        layout_dir = (
+            Path(project_dir)
+            / "artifacts"
+            / f"{source.stem}-{document_id[:12]}"
+            / "layout-render"
+        )
+        rendered = sorted(layout_dir.glob("*.pdf"))
+        if not rendered:
+            raise ValueError("未找到该 Office 文件的页面缓存，请重新执行输入解析。")
+        if page_number is None:
+            raise ValueError("该证据没有可映射到页面的版面坐标。")
+        return rendered[0], page_number, "office"
+
+    if document_type == "image":
+        if not source.is_file():
+            raise ValueError("图片原文件不存在。")
+        return source, 1, "image"
+
+    raise ValueError("此格式没有分页版面，无法提供原页视图。")
+
+
 def _format_retrieval_content(hit: dict[str, Any]) -> str:
     content = hit.get("content")
     if isinstance(content, str):
@@ -182,11 +248,88 @@ def _format_answer_diagnostics(response: dict[str, Any]) -> str:
         text = " ".join(str(claim.get("text") or "").split())[:240]
         evidence_ids = ",".join(str(value) for value in claim.get("evidence_ids") or [])
         lines.append(f"claim {index} evidence=[{evidence_ids}] text={text!r}")
+        for evidence_id, quote in (claim.get("supporting_quotes") or {}).items():
+            clean_quote = " ".join(str(quote).split())[:240]
+            lines.append(f"claim {index} quote[{evidence_id}]={clean_quote!r}")
     for warning in response.get("warnings") or []:
         lines.append(f"warning={str(warning)!r}")
     for limitation in response.get("limitations") or []:
         lines.append(f"limitation={str(limitation)!r}")
     return "\n".join(lines) + "\n"
+
+
+def _answer_trace_payload(
+    *,
+    model: str,
+    send_visual_assets: bool,
+    request: Any,
+    retrieval_response: Any,
+    engine: Any,
+    response: Any,
+) -> dict[str, Any]:
+    """Build a metadata-only trace without duplicating document contents."""
+    retrieval = retrieval_response.to_dict()
+    retrieval["hits"] = [
+        {
+            key: hit.get(key)
+            for key in (
+                "rank", "record_id", "document_id", "modality", "raw_score",
+                "fusion_score", "source_block_ids", "provenance", "source_path",
+                "document_type", "asset_path", "context_pages",
+            )
+        }
+        for hit in retrieval.get("hits") or []
+        if isinstance(hit, dict)
+    ]
+    candidates = [
+        {
+            key: value
+            for key, value in item.to_dict().items()
+            if key not in {"content", "context"}
+        }
+        for item in engine.normalizer.normalize(request)
+    ]
+    answer = response.to_dict()
+    answer["claims"] = [
+        {
+            "text": claim.get("text"),
+            "evidence_ids": claim.get("evidence_ids"),
+        }
+        for claim in answer.get("claims") or []
+        if isinstance(claim, dict)
+    ]
+    answer["selected_evidence"] = [
+        {
+            key: value
+            for key, value in item.items()
+            if key not in {"content", "context"}
+        }
+        for item in answer.get("selected_evidence") or []
+        if isinstance(item, dict)
+    ]
+    generator_response = getattr(engine.generator, "last_response", None)
+    generator_summary = None
+    if isinstance(generator_response, dict):
+        rows = generator_response.get("claims")
+        generator_summary = {
+            "keys": sorted(str(key) for key in generator_response),
+            "answerable_type": type(generator_response.get("answerable")).__name__,
+            "claim_count": len(rows) if isinstance(rows, list) else None,
+        }
+    return {
+        "trace_version": 2,
+        "privacy_mode": "metadata_only",
+        "model": model,
+        "send_visual_assets": send_visual_assets,
+        "max_evidence_items": request.max_evidence_items,
+        "max_evidence_chars": request.max_evidence_chars,
+        "applied_evidence_budget": dict(engine.budgeter.last_limits),
+        "retrieval": retrieval,
+        "candidates": candidates,
+        "selector_response": getattr(engine.selector, "last_response", None),
+        "generator_summary": generator_summary,
+        "answer": answer,
+    }
 
 
 def _runtime_root() -> Path:
@@ -327,17 +470,41 @@ def _worker_serve(
 def _worker_hybrid(source_dir: str, artifacts_dir: str) -> None:
     _redirect_worker_output()
     from hybrid_input import build_default_pipeline
+    from hybrid_input.parsers import document_id
 
-    pipeline = build_default_pipeline()
     failures: list[str] = []
+    output_root = Path(artifacts_dir)
     sources = [
         path for path in sorted(Path(source_dir).iterdir())
         if path.is_file() and path.suffix.lower() in SUPPORTED
     ]
-    print(f"Hybrid ingestion: {len(sources)} document(s)")
+    cached: dict[Path, tuple[int, int]] = {}
+    changed: list[Path] = []
     for source in sources:
+        digest = document_id(source)
+        summary = _cached_hybrid_summary(source, output_root, digest)
+        if summary is None:
+            changed.append(source)
+        else:
+            cached[source] = summary
+
+    print(
+        f"Hybrid ingestion: {len(sources)} document(s) "
+        f"({len(changed)} changed/new, {len(cached)} reused)"
+    )
+    pipeline = build_default_pipeline() if changed else None
+    for source in sources:
+        summary = cached.get(source)
+        if summary is not None:
+            block_count, visual_count = summary
+            print(
+                f"REUSED {source.name}: {block_count} blocks, "
+                f"{visual_count} visual regions"
+            )
+            continue
         try:
-            result = pipeline.ingest(source, Path(artifacts_dir))
+            assert pipeline is not None
+            result = pipeline.ingest(source, output_root)
             visual_count = sum(item.kind == "visual" for item in result.artifacts)
             print(
                 f"OK {source.name}: {len(result.artifacts)} blocks, "
@@ -348,6 +515,33 @@ def _worker_hybrid(source_dir: str, artifacts_dir: str) -> None:
             print(f"FAILED {source.name}: {exc}")
     if failures:
         raise RuntimeError("Hybrid ingestion failures: " + "; ".join(failures))
+
+
+def _cached_hybrid_summary(
+    source: Path,
+    artifacts_dir: Path,
+    digest: str,
+) -> tuple[int, int] | None:
+    """Return cached block counts only when the ingest result is safe to reuse."""
+    result_path = artifacts_dir / f"{source.stem}-{digest[:12]}" / "hybrid-document.json"
+    if not result_path.is_file():
+        return None
+    try:
+        payload = json.loads(result_path.read_text(encoding="utf-8"))
+        artifacts = payload["artifacts"]
+        cached_source = Path(str(payload["source_path"])).resolve()
+    except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+        return None
+    if (
+        payload.get("schema_version") != "1.1"
+        or payload.get("document_id") != digest
+        or cached_source != source.resolve()
+        or not isinstance(artifacts, list)
+        or any(not isinstance(item, dict) for item in artifacts)
+    ):
+        return None
+    visual_count = sum(item.get("kind") == "visual" for item in artifacts)
+    return len(artifacts), visual_count
 
 
 def _run_worker_mode() -> bool:
@@ -619,7 +813,7 @@ class StudioApp:
         ).grid(row=1, column=4, columnspan=2, sticky="w", pady=(8, 0))
         ttk.Label(
             answer_settings,
-            text="回答只使用通过筛选的证据；引用校验失败会自动修复一次，仍失败则不输出答案。",
+            text="回答只使用检索并进入预算的证据；引用原文校验失败会自动修复一次，仍失败则不输出答案。",
             foreground="#6b7280",
         ).grid(row=2, column=3, columnspan=3, sticky="e", pady=(8, 0))
         answer_settings.columnconfigure(1, weight=2)
@@ -975,7 +1169,10 @@ class StudioApp:
         created_engine = None
         try:
             from hybrid_input.answering import BailianChatClient
-            from hybrid_input.retrieval import LLMEnglishQueryExpander
+            from hybrid_input.retrieval import (
+                LLMEnglishQueryExpander,
+                ResilientQueryExpander,
+            )
             from hybrid_input.retrieval_contracts import RetrievalRequest
 
             engine = self.search_engine
@@ -985,9 +1182,9 @@ class StudioApp:
                 assert self.project_dir is not None
                 created_engine = HybridSearchEngine(self.project_dir / "index", device="cpu")
                 engine = created_engine
-            query_expander = None
+            remote_query_expander = None
             if bailian_model and bailian_api_key:
-                query_expander = LLMEnglishQueryExpander(
+                remote_query_expander = LLMEnglishQueryExpander(
                     BailianChatClient(
                         bailian_model,
                         api_key=bailian_api_key,
@@ -995,6 +1192,7 @@ class StudioApp:
                         timeout_seconds=45.0,
                     )
                 )
+            query_expander = ResilientQueryExpander(remote_query_expander)
             response = engine.search(
                 RetrievalRequest(
                     query_text=query,
@@ -1111,22 +1309,17 @@ class StudioApp:
             # be distinguished without rerunning a nondeterministic model request.
             if trace_project_dir is not None:
                 try:
-                    from dataclasses import asdict
-
                     trace_dir = trace_project_dir / "logs" / "answers"
                     trace_dir.mkdir(parents=True, exist_ok=True)
                     trace_path = trace_dir / f"answer-{datetime.now():%Y%m%d-%H%M%S-%f}.json"
-                    trace = {
-                        "model": model,
-                        "send_visual_assets": send_visual_assets,
-                        "max_evidence_items": request.max_evidence_items,
-                        "max_evidence_chars": request.max_evidence_chars,
-                        "retrieval": retrieval_response.to_dict(),
-                        "candidates": [asdict(item) for item in engine.normalizer.normalize(request)],
-                        "selector_response": getattr(engine.selector, "last_response", None),
-                        "generator_response": getattr(engine.generator, "last_response", None),
-                        "answer": response.to_dict(),
-                    }
+                    trace = _answer_trace_payload(
+                        model=model,
+                        send_visual_assets=send_visual_assets,
+                        request=request,
+                        retrieval_response=retrieval_response,
+                        engine=engine,
+                        response=response,
+                    )
                     with trace_path.open("x", encoding="utf-8") as handle:
                         json.dump(trace, handle, ensure_ascii=False, indent=2)
                 except Exception as exc:
@@ -1150,6 +1343,7 @@ class StudioApp:
         elapsed = float(response.get("elapsed_ms") or 0.0)
         labels = {
             "answered": "回答完成",
+            "partial_answer": "部分回答完成，仍有证据限制",
             "insufficient_evidence": "证据不足，未生成推断性回答",
             "failed": "回答失败并已安全停止",
         }
@@ -1251,50 +1445,57 @@ class StudioApp:
     def _show_original_page(self, hit: dict[str, Any]) -> None:
         from PIL import Image, ImageDraw, ImageTk
 
-        source = Path(str(hit.get("source_path") or ""))
-        provenance = hit.get("provenance") or {}
-        page_number = provenance.get("page")
-        if hit.get("document_type") != "pdf" or not source.is_file() or not page_number:
-            self._show_result_text("原页视图第一版仅支持具有有效页码的 PDF。")
+        try:
+            render_source, page_number, render_kind = _resolve_original_page_source(
+                self.project_dir,
+                hit,
+            )
+        except ValueError as exc:
+            self._show_result_text(str(exc))
             return
         try:
-            import pymupdf
+            scale = 1.5
+            if render_kind == "image":
+                image = Image.open(render_source).convert("RGB")
+            else:
+                import pymupdf
 
-            document = pymupdf.open(source)
-            try:
-                if not 1 <= int(page_number) <= document.page_count:
-                    raise ValueError("页码超出 PDF 范围")
-                page = document.load_page(int(page_number) - 1)
-                scale = 1.5
-                pixmap = page.get_pixmap(
-                    matrix=pymupdf.Matrix(scale, scale),
-                    colorspace=pymupdf.csRGB,
-                    alpha=False,
-                )
-                image = Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
-                draw = ImageDraw.Draw(image)
-                for block in hit.get("evidence_blocks") or []:
-                    regions = block.get("regions") or [block.get("provenance") or {}]
-                    for region in regions:
-                        if region.get("page") != page_number:
-                            continue
-                        bbox = region.get("bbox")
-                        if not isinstance(bbox, (list, tuple)) or len(bbox) != 4:
-                            continue
-                        values = [float(value) for value in bbox]
-                        if max(abs(value) for value in values) <= 1.5:
-                            values = [
-                                values[0] * image.width,
-                                values[1] * image.height,
-                                values[2] * image.width,
-                                values[3] * image.height,
-                            ]
-                        else:
-                            values = [value * scale for value in values]
-                        color = "#dc2626" if block.get("role") == "core" else "#f59e0b"
-                        draw.rectangle(values, outline=color, width=4)
-            finally:
-                document.close()
+                document = pymupdf.open(render_source)
+                try:
+                    if not 1 <= page_number <= document.page_count:
+                        raise ValueError("页码超出版面缓存范围")
+                    page = document.load_page(page_number - 1)
+                    pixmap = page.get_pixmap(
+                        matrix=pymupdf.Matrix(scale, scale),
+                        colorspace=pymupdf.csRGB,
+                        alpha=False,
+                    )
+                    image = Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
+                finally:
+                    document.close()
+
+            draw = ImageDraw.Draw(image)
+            for block in hit.get("evidence_blocks") or []:
+                regions = block.get("regions") or [block.get("provenance") or {}]
+                for region in regions:
+                    region_page = region.get("page")
+                    if render_kind != "image" and region_page != page_number:
+                        continue
+                    bbox = region.get("bbox")
+                    if not isinstance(bbox, (list, tuple)) or len(bbox) != 4:
+                        continue
+                    values = [float(value) for value in bbox]
+                    if max(abs(value) for value in values) <= 1.5:
+                        values = [
+                            values[0] * image.width,
+                            values[1] * image.height,
+                            values[2] * image.width,
+                            values[3] * image.height,
+                        ]
+                    elif render_kind != "image":
+                        values = [value * scale for value in values]
+                    color = "#dc2626" if block.get("role") == "core" else "#f59e0b"
+                    draw.rectangle(values, outline=color, width=4)
             image.thumbnail((620, 520), Image.LANCZOS)
             self.preview_image = ImageTk.PhotoImage(image)
             self.evidence_images = []

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest.mock import patch
 
@@ -77,6 +78,11 @@ class BailianChatClientTests(unittest.TestCase):
                         "claims": [{
                             "text": "三者共同范围为10°C至40°C",
                             "evidence_ids": ["E004", "E025", "E028"],
+                            "supporting_quotes": [
+                                {"evidence_id": "E004", "quote": "10°C to 40°C"},
+                                {"evidence_id": "E025", "quote": "-40 to 130°C"},
+                                {"evidence_id": "E028", "quote": "-40 to 130°C"},
+                            ],
                         }],
                         "limitations": [],
                     },
@@ -86,13 +92,18 @@ class BailianChatClientTests(unittest.TestCase):
 
         self.assertIs(draft.answerable, True)
         self.assertEqual(draft.claims[0].evidence_ids, ["E004", "E025", "E028"])
+        self.assertEqual(draft.claims[0].supporting_quotes["E004"], "10°C to 40°C")
 
     def test_generator_accepts_string_boolean_from_bailian_json_object_mode(self) -> None:
         class _Client:
             def complete_json(self, **kwargs: object) -> dict:
                 return {
                     "answerable": "true",
-                    "claims": [{"text": "共同范围为10°C至40°C", "evidence_ids": ["E001"]}],
+                    "claims": [{
+                        "text": "共同范围为10°C至40°C",
+                        "evidence_ids": ["E001"],
+                        "supporting_quotes": [{"evidence_id": "E001", "quote": "10°C to 40°C"}],
+                    }],
                     "limitations": [],
                 }
 
@@ -130,6 +141,28 @@ class BailianChatClientTests(unittest.TestCase):
         self.assertEqual(body["max_tokens"], 4_096)
         self.assertEqual(body["response_format"], {"type": "json_object"})
 
+    def test_qwen_38_uses_strict_json_schema_response_format(self) -> None:
+        response = _Response({"choices": [{"message": {"content": '{"ok":true}'}}]})
+        schema = {
+            "type": "object",
+            "properties": {"ok": {"type": "boolean"}},
+            "required": ["ok"],
+        }
+        with patch("urllib.request.urlopen", return_value=response) as urlopen:
+            BailianChatClient("qwen3.8-max", api_key="secret-key").complete_json(
+                system_prompt="system",
+                user_prompt="user",
+                schema=schema,
+            )
+
+        body = json.loads(urlopen.call_args.args[0].data.decode("utf-8"))
+        response_format = body["response_format"]
+        self.assertEqual(response_format["type"], "json_schema")
+        self.assertIs(response_format["json_schema"]["strict"], True)
+        strict_schema = response_format["json_schema"]["schema"]
+        self.assertEqual(strict_schema["required"], ["ok"])
+        self.assertIs(strict_schema["additionalProperties"], False)
+
     def test_visual_input_is_encoded_as_an_openai_image_data_url(self) -> None:
         response = _Response({"choices": [{"message": {"content": '{"ok":true}'}}]})
         with tempfile.TemporaryDirectory() as directory:
@@ -149,6 +182,29 @@ class BailianChatClientTests(unittest.TestCase):
         user_content = body["messages"][1]["content"]
         self.assertEqual(user_content[0], {"type": "text", "text": "user"})
         self.assertTrue(user_content[1]["image_url"]["url"].startswith("data:image/png;base64,"))
+
+    def test_transient_connection_failure_is_retried(self) -> None:
+        response = _Response({"choices": [{"message": {"content": '{"ok":true}'}}]})
+        with (
+            patch(
+                "urllib.request.urlopen",
+                side_effect=[urllib.error.URLError("connection reset"), response],
+            ) as urlopen,
+            patch("time.sleep") as sleep,
+        ):
+            result = BailianChatClient(
+                "qwen-plus",
+                api_key="secret-key",
+                retry_base_seconds=0.01,
+            ).complete_json(
+                system_prompt="system",
+                user_prompt="user",
+                schema={"type": "object", "properties": {"ok": {"type": "boolean"}}},
+            )
+
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(urlopen.call_count, 2)
+        sleep.assert_called_once_with(0.01)
 
     def test_list_models_reads_openai_data_shape(self) -> None:
         response = _Response({"data": [{"id": "qwen-plus"}, {"id": "qwen-max"}]})

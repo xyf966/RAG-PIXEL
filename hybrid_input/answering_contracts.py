@@ -39,6 +39,7 @@ def _unique_texts(values: list[str], field_name: str, *, allow_empty: bool = Fal
 
 class AnswerStatus(str, Enum):
     ANSWERED = "answered"
+    PARTIAL_ANSWER = "partial_answer"
     INSUFFICIENT_EVIDENCE = "insufficient_evidence"
     FAILED = "failed"
 
@@ -47,8 +48,8 @@ class AnswerStatus(str, Enum):
 class AnswerRequest:
     query_text: str
     retrieval_response: RetrievalResponse
-    max_evidence_items: int = 6
-    max_evidence_chars: int = 10_000
+    max_evidence_items: int = 10
+    max_evidence_chars: int = 16_000
     allow_visual: bool = True
 
     def __post_init__(self) -> None:
@@ -164,10 +165,21 @@ class EvidenceDecision:
 class AnswerClaim:
     text: str
     evidence_ids: list[str]
+    supporting_quotes: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.text = _required_text(self.text, "claim text")
         self.evidence_ids = _unique_texts(self.evidence_ids, "evidence_ids")
+        if not isinstance(self.supporting_quotes, dict):
+            raise TypeError("supporting_quotes must be a dictionary")
+        clean_quotes: dict[str, str] = {}
+        for raw_id, raw_quote in self.supporting_quotes.items():
+            evidence_id = _required_text(raw_id, "supporting quote evidence_id").upper()
+            quote = _required_text(raw_quote, "supporting quote")
+            if evidence_id in clean_quotes:
+                raise ValueError(f"Duplicate supporting quote evidence_id: {evidence_id}")
+            clean_quotes[evidence_id] = quote
+        self.supporting_quotes = clean_quotes
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -256,7 +268,7 @@ class AnswerResponse:
         self.elapsed_ms = float(self.elapsed_ms)
         if not math.isfinite(self.elapsed_ms) or self.elapsed_ms < 0:
             raise ValueError("elapsed_ms must be a finite non-negative value")
-        if self.status is AnswerStatus.ANSWERED and not self.claims:
+        if self.status in {AnswerStatus.ANSWERED, AnswerStatus.PARTIAL_ANSWER} and not self.claims:
             raise ValueError("answered responses must contain at least one claim")
 
     def to_dict(self) -> dict[str, Any]:

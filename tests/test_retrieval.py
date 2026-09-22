@@ -18,6 +18,8 @@ from hybrid_input.retrieval import (
     EvidenceExpander,
     HybridSearchEngine,
     LLMEnglishQueryExpander,
+    LocalQueryExpander,
+    ResilientQueryExpander,
     ModalitySearcher,
     PixelRAGQueryEmbedder,
     QueryAwareTextReranker,
@@ -858,6 +860,26 @@ class CandidateRankerTests(unittest.TestCase):
 
 
 class HybridSearchEngineTests(unittest.TestCase):
+    def test_local_query_planner_splits_common_separate_subject_question(self) -> None:
+        variants = LocalQueryExpander().expand("对象A和对象B分别应如何处理？")
+
+        self.assertEqual(
+            variants,
+            ("对象A和对象B分别应如何处理？", "对象A应如何处理", "对象B应如何处理"),
+        )
+
+    def test_resilient_query_planner_falls_back_to_local_variants(self) -> None:
+        class FailingExpander:
+            def expand(self, query_text):
+                raise RuntimeError("temporary planner failure")
+
+        expander = ResilientQueryExpander(FailingExpander())
+        variants = expander.expand("对象A和对象B分别应如何处理？")
+
+        self.assertIn("对象A应如何处理", variants)
+        self.assertIn("对象B应如何处理", variants)
+        self.assertIn("local query planning was used", expander.last_warning)
+
     def test_query_planner_returns_translation_and_requirement_queries(self) -> None:
         class Client:
             def complete_json(self, **kwargs):
