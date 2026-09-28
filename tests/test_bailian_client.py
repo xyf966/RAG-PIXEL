@@ -13,6 +13,7 @@ from hybrid_input.answering import (
     CitationValidator,
     LLMEvidenceSelector,
     LLMAnswerGenerator,
+    ModelResponseError,
     RetrievalEvidenceSelector,
 )
 from hybrid_input.answering_contracts import EvidenceItem
@@ -140,6 +141,67 @@ class BailianChatClientTests(unittest.TestCase):
         self.assertIs(body["enable_thinking"], False)
         self.assertEqual(body["max_tokens"], 4_096)
         self.assertEqual(body["response_format"], {"type": "json_object"})
+
+    def test_complete_json_accepts_single_object_array_from_model(self) -> None:
+        response = _Response({
+            "choices": [{"message": {"content": '[{"ok":true}]'}}],
+        })
+        with patch("urllib.request.urlopen", return_value=response):
+            result = BailianChatClient(
+                "qwen3.8-flash",
+                api_key="secret-key",
+            ).complete_json(
+                system_prompt="system",
+                user_prompt="user",
+                schema={"type": "object", "properties": {"ok": {"type": "boolean"}}},
+            )
+
+        self.assertEqual(result, {"ok": True})
+
+    def test_complete_json_rejects_multi_object_array(self) -> None:
+        response = _Response({
+            "choices": [{"message": {"content": '[{"ok":true},{"ok":false}]'}}],
+        })
+        with patch("urllib.request.urlopen", return_value=response):
+            with self.assertRaisesRegex(
+                ModelResponseError,
+                "single-object array; got array with 2 items",
+            ):
+                BailianChatClient(
+                    "qwen3.8-flash",
+                    api_key="secret-key",
+                ).complete_json(
+                    system_prompt="system",
+                    user_prompt="user",
+                    schema={"type": "object"},
+                )
+
+    def test_strict_schema_empty_array_retries_with_json_object_mode(self) -> None:
+        empty_array = _Response({
+            "choices": [{"message": {"content": "[]"}}],
+        })
+        valid_object = _Response({
+            "choices": [{"message": {"content": '{"ok":true}'}}],
+        })
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=[empty_array, valid_object],
+        ) as urlopen:
+            result = BailianChatClient(
+                "qwen3.8-flash",
+                api_key="secret-key",
+            ).complete_json(
+                system_prompt="system",
+                user_prompt="user",
+                schema={"type": "object", "properties": {"ok": {"type": "boolean"}}},
+            )
+
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(urlopen.call_count, 2)
+        first_body = json.loads(urlopen.call_args_list[0].args[0].data.decode("utf-8"))
+        second_body = json.loads(urlopen.call_args_list[1].args[0].data.decode("utf-8"))
+        self.assertEqual(first_body["response_format"]["type"], "json_schema")
+        self.assertEqual(second_body["response_format"], {"type": "json_object"})
 
     def test_qwen_38_uses_strict_json_schema_response_format(self) -> None:
         response = _Response({"choices": [{"message": {"content": '{"ok":true}'}}]})

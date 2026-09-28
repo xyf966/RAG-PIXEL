@@ -28,7 +28,7 @@ from hybrid_input.parsers import (
     OpenDataLoaderPdfSubprocessParser,
     ScannedPdfOcrError,
 )
-from hybrid_input.pipeline import PipelineConfig, build_default_pipeline
+from hybrid_input.pipeline import PipelineConfig, build_default_pipeline, discover_docling_python
 from hybrid_input.processors import PillowImageProcessor
 from hybrid_input.vision import PixelRAGVisionProcessor
 from hybrid_input.opendataloader_worker import (
@@ -45,6 +45,18 @@ from hybrid_input.office_worker import (
 
 
 class HybridInputSmokeTests(unittest.TestCase):
+    def test_docling_worker_defaults_to_current_python(self) -> None:
+        with patch.dict(os.environ, {"HYBRID_DOCLING_PYTHON": ""}):
+            self.assertEqual(discover_docling_python(), Path(sys.executable).resolve())
+
+    def test_docling_worker_honors_explicit_environment(self) -> None:
+        configured = Path(tempfile.gettempdir()) / "docling-worker" / "python.exe"
+        with patch.dict(
+            os.environ,
+            {"HYBRID_DOCLING_PYTHON": str(configured)},
+        ):
+            self.assertEqual(discover_docling_python(), configured.resolve())
+
     def test_powerpoint_visuals_match_by_geometry_when_parser_order_differs(self) -> None:
         wheel = Artifact(
             "wheel", "image", Provenance(

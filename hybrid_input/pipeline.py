@@ -144,9 +144,11 @@ def discover_docling_python() -> Path:
     configured = os.environ.get("HYBRID_DOCLING_PYTHON")
     if configured:
         return Path(configured).expanduser().resolve()
-    if importlib.util.find_spec("docling") is not None:
-        return Path(sys.executable)
-    return Path.home() / "Desktop" / "图片识别" / ".conda-env" / "python.exe"
+    # Source installations now keep every Python dependency in the project's
+    # own virtual environment.  Falling back to a developer-specific desktop
+    # path made a fresh clone appear to start successfully while all Office
+    # parsing workers failed on another computer.
+    return Path(sys.executable).resolve()
 
 
 def build_default_pipeline(config: PipelineConfig | None = None, docling_python: Path | None = None) -> HybridPipeline:

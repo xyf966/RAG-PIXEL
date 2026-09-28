@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 .build-env/
 .conda-env/
+.venv/
+.hybrid-output/
+.pytest_cache/
 
 # Build outputs and logs
 build/

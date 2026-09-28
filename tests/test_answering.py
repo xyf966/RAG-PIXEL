@@ -448,6 +448,34 @@ class AnsweringTests(unittest.TestCase):
         self.assertEqual(rejected[0].support_level, "none")
         self.assertEqual(len(invalid_quote_client.calls), 1)
 
+    def test_selector_accepts_visual_grounding_when_image_is_sent(self) -> None:
+        item = _item()
+        item.modality = "visual"
+        item.content = {"context": "Line graph displaying regional counts"}
+        item.context = "Line graph displaying regional counts"
+        item.asset_path = "C:/docs/figure-20.png"
+        client = QueueJsonClient(
+            [{
+                "requirements": ["East地区2011年和2017年的数量"],
+                "decisions": [{
+                    "evidence_id": "E001",
+                    "support_level": "direct",
+                    "score": 0.95,
+                    "support_quote": "绿色East曲线在2011年约1850、2017年约2800",
+                    "rationale": "图中的坐标轴和绿色数据点可直接支持近似读数",
+                }],
+            }]
+        )
+
+        decisions = LLMEvidenceSelector(
+            client,
+            send_visual_assets=True,
+        ).select("East地区增加了多少？", [item])
+
+        self.assertTrue(decisions[0].relevant)
+        self.assertEqual(decisions[0].support_level, "direct")
+        self.assertIn("视觉依据", client.calls[0]["user_prompt"])
+
     def test_selector_accepts_exact_subject_and_focus_without_model_call(self) -> None:
         item = _item()
         item.content = {
@@ -793,6 +821,27 @@ class AnsweringTests(unittest.TestCase):
 
         self.assertTrue(any("缺少引用原文" in error for error in missing))
         self.assertTrue(any("引用原文不在该证据中" in error for error in invented))
+
+    def test_validator_accepts_grounding_for_attached_visual_evidence(self) -> None:
+        item = _item()
+        item.modality = "visual"
+        item.content = {"context": "Line graph displaying regional counts"}
+        item.context = "Line graph displaying regional counts"
+        item.asset_path = "C:/docs/figure-20.png"
+        errors = CitationValidator(allow_visual_grounding=True).validate(
+            AnswerDraft(
+                True,
+                [AnswerClaim(
+                    "East地区约增加950只，增长约51%",
+                    ["E001"],
+                    {"E001": "绿色East曲线从2011年约1850上升到2017年约2800"},
+                )],
+            ),
+            [item],
+            [EvidenceDecision("E001", True, "direct", 0.95)],
+        )
+
+        self.assertEqual(errors, [])
 
 
 if __name__ == "__main__":

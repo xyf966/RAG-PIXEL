@@ -1,5 +1,84 @@
 # PixelRAG Studio
 
+## 从源码直接安装和启动
+
+不需要先打包 EXE。Windows 用户可以下载源码，在项目自己的 `.venv` 虚拟环境中直接运行 `pixelrag_studio.py`。推荐使用这种方式进行交接、开发和内部试用。
+
+### 运行条件
+
+- Windows 10 或 Windows 11 64 位；
+- Python 3.12 64 位，安装时勾选 Python Launcher 和 Tcl/Tk；
+- 建议预留至少 15 GB 磁盘空间，用于 Python 依赖、模型和项目索引；
+- 能访问 Python 包源；
+- 首次使用默认远程模型名时，需要下载约 4 GB 的 Qwen3-VL-Embedding-2B；
+- 扫描 PDF 的 OCR 需要 Java 11 或更高版本；
+- Word、PowerPoint 和 Excel 的原生页面渲染及视觉对象导出需要安装相应的 Microsoft Office 桌面应用；
+- 生成回答需要可访问阿里云百炼，并准备有效的 API Key。
+
+### 最简单的安装方式
+
+1. 从 GitHub 下载并解压项目，或克隆正式代码分支。
+2. 双击 `setup.cmd`。脚本会创建 `.venv` 并安装 `requirements.txt` 中的依赖。
+3. 安装完成后双击 `start-studio.cmd`。
+
+第一次安装需要下载数 GB 依赖，耗时取决于网络。安装中断后可以再次运行 `setup.cmd`，脚本会复用已经创建的 `.venv`。
+
+如果当前完整代码尚未合并到默认 `main` 分支，请明确克隆功能分支：
+
+```powershell
+git clone --branch agent/hybrid-office-input --single-branch https://github.com/xyf966/RAG-PIXEL.git
+cd RAG-PIXEL
+.\setup.ps1
+.\start-studio.cmd
+```
+
+### 使用 PowerShell 安装
+
+```powershell
+.\setup.ps1
+.\.venv\Scripts\python.exe verify_environment.py
+.\.venv\Scripts\python.exe pixelrag_studio.py
+```
+
+PowerShell 的执行策略阻止直接运行脚本时，可以使用 `setup.cmd`，或仅对当前进程执行：
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\setup.ps1
+```
+
+企业电脑已经安装 Python 3.12、但没有注册 `py` 或 `python` 命令时，可以显式指定解释器：
+
+```powershell
+.\setup.ps1 -PythonExecutable "C:\路径\到\python.exe"
+```
+
+### 环境自检
+
+```powershell
+.\.venv\Scripts\python.exe verify_environment.py
+```
+
+自检会验证 Python 版本、Tkinter、Docling、OpenDataLoader PDF、PixelRAG、PyTorch、Transformers、FAISS、Office COM Python 支持等依赖。Java 和 Microsoft Office 缺失默认显示警告，因为程序仍可处理部分格式；如需把它们作为强制条件，可运行：
+
+```powershell
+.\.venv\Scripts\python.exe verify_environment.py --require-java --require-office
+```
+
+### 运行测试
+
+```powershell
+.\.venv\Scripts\python.exe -m compileall -q hybrid_input pixelrag_studio.py verify_environment.py
+.\.venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py"
+```
+
+### 源码交付说明
+
+- `.venv`、模型、项目数据和测试产物不会提交到 GitHub；接手人通过 `setup.cmd` 自行建立环境。
+- 不要把 API Key 写入源码或提交到 GitHub。可以在程序界面输入，或使用 `DASHSCOPE_API_KEY`。
+- 不要把包含业务文件、索引和日志的 `PixelRAG-Studio-Data` 直接作为公开仓库内容上传。
+- 当前源码运行方式已不再依赖开发者电脑上的外部 `.conda-env` 路径。
+
 ## Hybrid 输入层
 
 项目现已包含独立的 `hybrid_input` 输入包。它只负责把不同格式转换成统一的
@@ -24,12 +103,12 @@ PDF 通过 OpenDataLoader Hybrid 和矢量区域检测识别图片、图表、�
 每一步都可以独立调用：
 
 ```powershell
-.build-env\Scripts\python.exe -m hybrid_input capabilities
-.build-env\Scripts\python.exe -m hybrid_input detect 文档.docx
-.build-env\Scripts\python.exe -m hybrid_input parse 文档.docx --output 解析结果
-.build-env\Scripts\python.exe -m hybrid_input render 文档.docx --output 渲染结果
-.build-env\Scripts\python.exe -m hybrid_input ingest 文档.docx --output artifacts
-.build-env\Scripts\python.exe -m hybrid_input ingest 文档.docx --output artifacts --vision-processor pixelrag --vision-device cpu
+.venv\Scripts\python.exe -m hybrid_input capabilities
+.venv\Scripts\python.exe -m hybrid_input detect 文档.docx
+.venv\Scripts\python.exe -m hybrid_input parse 文档.docx --output 解析结果
+.venv\Scripts\python.exe -m hybrid_input render 文档.docx --output 渲染结果
+.venv\Scripts\python.exe -m hybrid_input ingest 文档.docx --output artifacts
+.venv\Scripts\python.exe -m hybrid_input ingest 文档.docx --output artifacts --vision-processor pixelrag --vision-device cpu
 ```
 
 PixelRAG 视觉处理器直接复用官方 `pixelrag_embed.embed_cpu` 后端。模型选择顺序为：
@@ -44,7 +123,7 @@ PixelRAG 视觉处理器直接复用官方 `pixelrag_embed.embed_cpu` 后端。�
 
 ### 在 VS Code 中运行
 
-打开项目文件夹后，VS Code 会自动使用 `.build-env` 解释器。进入左侧“运行和调试”，
+打开项目文件夹后，VS Code 会自动使用 `.venv` 解释器。进入左侧“运行和调试”，
 可直接选择：
 
 - `Studio：启动桌面应用`

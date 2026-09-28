@@ -4,7 +4,7 @@
     {
       "label": "Studio：启动桌面应用（无需调试器）",
       "type": "process",
-      "command": "${workspaceFolder}\\.build-env\\Scripts\\python.exe",
+      "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
       "args": ["${workspaceFolder}\\pixelrag_studio.py"],
       "options": {
         "cwd": "${workspaceFolder}",
@@ -23,7 +23,7 @@
     {
       "label": "检查：语法与最小测试",
       "type": "process",
-      "command": "${workspaceFolder}\\.build-env\\Scripts\\python.exe",
+      "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
       "args": ["-m", "unittest", "discover", "-s", "tests", "-v"],
       "options": {
         "cwd": "${workspaceFolder}",
@@ -40,7 +40,7 @@
     {
       "label": "Hybrid：完整处理当前文件",
       "type": "process",
-      "command": "${workspaceFolder}\\.build-env\\Scripts\\python.exe",
+      "command": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
       "args": [
         "-m",
         "hybrid_input",
