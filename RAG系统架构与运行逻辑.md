@@ -1,6 +1,6 @@
 ---
 title: PixelRAG Studio RAG 系统架构与运行逻辑
-date: 2026-09-23
+date: 2026-09-28
 tags: [RAG, PixelRAG, Hybrid, 架构, 输入层, 索引层, 检索层, 回答层, 引用]
 ---
 
@@ -456,6 +456,8 @@ sequenceDiagram
     R-->>UI: RetrievalResponse
     UI-->>U: 命中列表、证据视图、原页高亮
     U->>UI: 基于当前结果生成回答
+    UI->>B: 候选证据语义筛选
+    B-->>UI: EvidenceDecision 列表
     UI->>B: 预算内证据与结构化输出约束
     B-->>UI: claims + evidence_ids + supporting_quotes
     UI->>V: 本地引用校验
@@ -541,7 +543,7 @@ claim → E001 → EvidenceItem → IndexRecord
 
 ### 13.1 Studio 主流程
 
-1. 在 VS Code“运行和调试”中选择 `Studio：启动桌面应用`；
+1. 首次使用运行 `setup.cmd`，安装完成后运行 `start-studio.cmd`；开发者也可在 VS Code“运行和调试”中选择 `Studio：启动桌面应用`；
 2. 创建项目；
 3. 添加支持的文件；
 4. 运行 Hybrid 输入解析；
@@ -555,18 +557,18 @@ claim → E001 → EvidenceItem → IndexRecord
 ### 13.2 输入层独立调用
 
 ```powershell
-.build-env\Scripts\python.exe -m hybrid_input capabilities
-.build-env\Scripts\python.exe -m hybrid_input detect 文档.docx
-.build-env\Scripts\python.exe -m hybrid_input parse 文档.docx --output 解析结果
-.build-env\Scripts\python.exe -m hybrid_input render 文档.docx --output 渲染结果
-.build-env\Scripts\python.exe -m hybrid_input ingest 文档.docx --output artifacts
+.\.venv\Scripts\python.exe -m hybrid_input capabilities
+.\.venv\Scripts\python.exe -m hybrid_input detect 文档.docx
+.\.venv\Scripts\python.exe -m hybrid_input parse 文档.docx --output 解析结果
+.\.venv\Scripts\python.exe -m hybrid_input render 文档.docx --output 渲染结果
+.\.venv\Scripts\python.exe -m hybrid_input ingest 文档.docx --output artifacts
 ```
 
 这些入口证明输入步骤可以单独测试和替换，不需要启动完整 RAG。
 
 ## 14. 当前完成度与边界
 
-截至 2026-09-22，全项目自动化测试为 **167/167 PASS**。当前已完成：
+截至 2026-09-28，全项目自动化测试为 **174/174 PASS**。当前已完成：
 
 - 多格式输入与统一坐标契约；
 - 延迟视觉物化和 PixelRAG 视觉向量；
@@ -578,5 +580,5 @@ claim → E001 → EvidenceItem → IndexRecord
 - 结构化回答、部分回答、原文引用和失败保护；
 - 证据视图和原页坐标高亮。
 
-“RAG 基本完成”表示从文件输入到带引用回答的工程链路已经闭环。仍需长期迭代的是效果层面：更大真实测试集的 Recall/MRR、不同文档的人工验收、回答正确率评估、GPU 加速、更多解析器/向量库适配，以及 Studio 默认证据选择器与目标配置的一致性。
+“RAG 基本完成”表示从文件输入到带引用回答的工程链路已经闭环。仍需长期迭代的是效果层面：更大真实测试集的 Recall/MRR、不同文档的人工验收、回答正确率评估、GPU 加速，以及更多解析器、向量库和证据选择策略的适配。当前 Studio 默认使用 `LLMEvidenceSelector`；如果未来改为本地直通策略，必须同步修改测试、README 和本架构文档。
 
