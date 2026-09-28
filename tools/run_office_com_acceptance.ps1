@@ -6,10 +6,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$desktopRoot = Split-Path -Parent $projectRoot
-$workerPython = Get-ChildItem -LiteralPath $desktopRoot -Directory | ForEach-Object {
-    Join-Path $_.FullName ".conda-env\python.exe"
-} | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+$workerPython = Join-Path $projectRoot ".venv\Scripts\python.exe"
 $worker = Join-Path $projectRoot "hybrid_input\office_worker.py"
 $sourceRoot = Join-Path $projectRoot "visual_index_sourse"
 $outputRoot = Join-Path $projectRoot "schema2-index-acceptance\office-com-interactive"
@@ -28,8 +25,8 @@ trap {
     exit 1
 }
 
-if (-not $workerPython) {
-    throw "Office worker Python was not found under the desktop directories"
+if (-not (Test-Path -LiteralPath $workerPython -PathType Leaf)) {
+    throw "Project Python was not found at $workerPython. Run setup.cmd first."
 }
 
 $cases = @(

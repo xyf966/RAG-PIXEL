@@ -2,16 +2,18 @@ param()
 
 $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$desktopRoot = Split-Path -Parent $projectRoot
-$workerPython = Get-ChildItem -LiteralPath $desktopRoot -Directory | ForEach-Object {
-    Join-Path $_.FullName ".conda-env\python.exe"
-} | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+$workerPython = Join-Path $projectRoot ".venv\Scripts\python.exe"
 $worker = Join-Path $projectRoot "hybrid_input\office_worker.py"
 $source = (Get-ChildItem -LiteralPath (Join-Path $projectRoot "visual_index_sourse") -File -Filter "*.pptx" | Select-Object -First 1).FullName
 $root = Join-Path $projectRoot "schema2-index-acceptance\ppt-com-diagnostic"
 $output = Join-Path $root "output"
 $result = Join-Path $root "result.json"
 $log = Join-Path $root "worker.log"
+
+if (-not (Test-Path -LiteralPath $workerPython -PathType Leaf)) {
+    throw "Project Python was not found at $workerPython. Run setup.cmd first."
+}
+
 New-Item -ItemType Directory -Force -Path $output | Out-Null
 Remove-Item -LiteralPath $log -Force -ErrorAction SilentlyContinue
 
