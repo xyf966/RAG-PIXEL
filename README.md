@@ -80,10 +80,12 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 ### 源码交付说明
 
-- `.venv`、模型、项目数据和测试产物不会提交到 GitHub；接手人通过 `setup.cmd` 自行建立环境。
+- `.venv`、模型、项目数据和新生成的测试产物均由 `.gitignore` 排除；接手人通过 `setup.cmd` 自行建立环境。仓库目前仍保留一批早期验收报告和图片，后续应确认无保留价值后停止跟踪。
 - 不要把 API Key 写入源码或提交到 GitHub。可以在程序界面输入，或使用 `DASHSCOPE_API_KEY`。
 - 不要把包含业务文件、索引和日志的 `PixelRAG-Studio-Data` 直接作为公开仓库内容上传。
-- 当前源码运行方式已不再依赖开发者电脑上的外部 `.conda-env` 路径。
+- GUI、Hybrid 输入层、Office worker 及仓库内 Office 验收/诊断脚本均使用当前项目的 `.venv`，不再搜索或依赖开发者电脑上的外部 `.conda-env`。
+- `HYBRID_DOCLING_PYTHON` 只用于明确覆盖 worker 解释器；未设置时使用当前项目 Python。
+- `.build-env` 仅属于可选的历史 EXE 打包流程，不是源码安装、启动、解析、建库或测试的依赖。
 
 ## Hybrid 输入层
 
@@ -109,12 +111,12 @@ PDF 通过 OpenDataLoader Hybrid 和矢量区域检测识别图片、图表、�
 每一步都可以独立调用：
 
 ```powershell
-.venv\Scripts\python.exe -m hybrid_input capabilities
-.venv\Scripts\python.exe -m hybrid_input detect 文档.docx
-.venv\Scripts\python.exe -m hybrid_input parse 文档.docx --output 解析结果
-.venv\Scripts\python.exe -m hybrid_input render 文档.docx --output 渲染结果
-.venv\Scripts\python.exe -m hybrid_input ingest 文档.docx --output artifacts
-.venv\Scripts\python.exe -m hybrid_input ingest 文档.docx --output artifacts --vision-processor pixelrag --vision-device cpu
+.\.venv\Scripts\python.exe -m hybrid_input capabilities
+.\.venv\Scripts\python.exe -m hybrid_input detect 文档.docx
+.\.venv\Scripts\python.exe -m hybrid_input parse 文档.docx --output 解析结果
+.\.venv\Scripts\python.exe -m hybrid_input render 文档.docx --output 渲染结果
+.\.venv\Scripts\python.exe -m hybrid_input ingest 文档.docx --output artifacts
+.\.venv\Scripts\python.exe -m hybrid_input ingest 文档.docx --output artifacts --vision-processor pixelrag --vision-device cpu
 ```
 
 PixelRAG 视觉处理器直接复用官方 `pixelrag_embed.embed_cpu` 后端。模型选择顺序为：
@@ -123,7 +125,7 @@ PixelRAG 视觉处理器直接复用官方 `pixelrag_embed.embed_cpu` 后端。�
 同一次索引构建使用一个常驻 `PixelRAGVisionProcessor`，模型首次需要视觉向量时加载，随后跨文档复用，
 构建完成后统一释放，不会为每份文档重复加载约 4GB 权重。
 
-可通过 `HYBRID_DOCLING_PYTHON` 指定 Docling/Office worker 使用的 Python 环境。
+Docling/Office worker 默认使用当前项目的 `.venv`。如确有隔离执行需求，可通过 `HYBRID_DOCLING_PYTHON` 显式指定其他兼容的 Python 3.12 环境。
 模块之间仅交换 JSON、图片文件和版本化数据契约；更换解析器或渲染器不要求修改
 其他步骤。
 
