@@ -23,10 +23,10 @@
 
 第一次安装需要下载数 GB 依赖，耗时取决于网络。安装中断后可以再次运行 `setup.cmd`，脚本会复用已经创建的 `.venv`。
 
-如果当前完整代码尚未合并到默认 `main` 分支，请明确克隆功能分支：
+使用 Git 克隆默认 `main` 分支：
 
 ```powershell
-git clone --branch agent/hybrid-office-input --single-branch https://github.com/xyf966/RAG-PIXEL.git
+git clone https://github.com/xyf966/RAG-PIXEL.git
 cd RAG-PIXEL
 .\setup.ps1
 .\start-studio.cmd
